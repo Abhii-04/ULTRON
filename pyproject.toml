@@ -1,0 +1,14 @@
+[project]
+name = "ultron"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "datetime>=6.0",
+    "dotenv>=0.9.9",
+    "langchain>=1.3.14",
+    "langchain-openai>=1.4.1",
+    "langgraph>=1.2.10",
+    "tavily>=1.1.0",
+]
