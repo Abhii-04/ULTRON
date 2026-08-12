@@ -11,3 +11,7 @@ wheels/
 
 .env
 browser-profile/
+docs/
+generated_project
+credentials.json
+token.json

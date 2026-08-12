@@ -2,7 +2,6 @@ from pickle import NONE
 import subprocess
 import re
 from dataclasses import dataclass
-from tracemalloc import Snapshot
 from typing import List
 from langchain_core.tools import tool
 from typing import Any
@@ -30,72 +29,66 @@ NEGATIVE_PHRASES = [
 
 @tool
 def open_browser(url):
-    """open a browser or to peform browser automation in browser"""
+    """Open a persistent headed Chrome browser at the given URL."""
     CurrentPage = subprocess.Popen(["playwright-cli","open","--browser=chrome","--headed","--persistent",url])
     print("ran open_browser command")
     return CurrentPage
 
-@tool
-def snapshot(filename):
-    """take a snapshot of the current page in browser """
-    Snapshot = subprocess.run(["playwright-cli","snapshot","--filename=f "], capture_output=True, text=True)
-    print("ran snapshot command")
-    return Snapshot
 
 
 
 @tool
 def goforward():
-    """go forward in a url/Currentpage in browser"""
+    """Navigate the current browser page forward."""
     go_forward = subprocess.run(["playwright-cli","go-forward"])
     print("ran go_forward command")
     return go_forward
 
 @tool
 def reload():
-    """reload a page in browser"""
+    """Reload the current browser page."""
     reload = subprocess.run(["playwright-cli","reload"])
     print("ran reload command")
     return reload
 
 @tool
 def Press(key):
-    """press a key (eg : Enter, ArrowLeft) in browser"""
+    """Press a keyboard key in the current browser page."""
     press = subprocess.run(["playwright-cli","press",key])
     print("ran Press command")
     return press
 
 @tool
 def scroll(dx,dy):
-    """scroll up or down in a page by providing dx and dy measurements in browser"""
+    """Scroll the current browser page by the provided x/y wheel amounts."""
     scroll = subprocess.run(["playwright-cli","mousewheel",str(dx),str(dy)])
     print("ran scroll command...")
     return scroll
 
 @tool
 def save_storage_state(filename):
-    """save storage state(cookies,localstorage) in browser"""
+    """Save current browser cookies and storage state to a file."""
     storage = subprocess.run(["playwright-cli","state-save",[filename]])
     print("ran save_storage command...")
     return storage
 
 @tool
 def type(text:str):
-    """type a text in browser"""
+    """Type text into the current focused browser element."""
     type = subprocess.run(["playwright-cli","type",text])
     print("ran type command")
     return type
 
 @tool
 def run_headed_browser(url):
-    """run headed browser"""
+    """Open a headed browser window at the given URL."""
     run_headed = subprocess.Popen(["playwright-cli","open",url,"--headed"])
     print("ran run_headed command")
     return run_headed
 
 @tool 
 def click(button_name):
-    """click a button"""
+    """Click a browser element by its visible name or selector."""
     click = subprocess.run(["playwright-cli","click",button_name])
     print("ran click command")
     return click

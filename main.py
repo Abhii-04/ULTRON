@@ -1,5 +1,8 @@
 import asyncio
+import faulthandler
 from src.agent import Agent   # your file name
+
+faulthandler.enable(all_threads=True)
 
 async def main():
     agent = Agent()
