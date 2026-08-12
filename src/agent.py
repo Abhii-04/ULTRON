@@ -5,6 +5,8 @@ from typing import Any, Dict, List
 #Langgraph imports
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.base import BaseStore
+from langgraph.store.memory import InMemoryStore
 
 #Langchain imports
 from langchain_openai import ChatOpenAI
@@ -30,7 +32,8 @@ class Agent:
         self.browser_graph=None
         self.graph=None
         self.agent_id = None
-        self.memory = None
+        self.checkpointer = None
+        self.store = None
 
     async def setup(self):
         internet = InternetAgent()
@@ -43,13 +46,34 @@ class Agent:
         await assistent.build_graph()
         self.browser_graph = assistent.graph
 
-        self.memory = InMemorySaver()
+        self.checkpointer = InMemorySaver()
+        self.store = InMemoryStore()
         await self.build_graph()
 
-    def orchestrator(self, state: State) -> Dict[str, Any]:
+    def get_user_profile(self, store: BaseStore, user_id: str) -> Dict[str, Any]:
+        memory = store.get(("user", user_id), "profile")
+        return memory.value if memory else {}
+
+    def update_user_profile(
+        self,
+        user_id: str,
+        profile: Dict[str, Any],
+    ) -> None:
+        if self.store is None:
+            raise RuntimeError("Memory store has not been initialized. Call setup() first.")
+
+        self.store.put(("user", user_id), "profile", profile)
+
+    def orchestrator(self, state: State, store: BaseStore) -> Dict[str, Any]:
+        user_id = state.get("user_id", "default")
+        profile = self.get_user_profile(store, user_id)
+
         system_message = SystemMessage(
-            content="""
+            content=f"""
             You are the routing controller for a two-agent assistant system.
+
+            Stored user profile for routing context:
+            {profile}
 
             Read the user's latest request and choose the agent that should handle it.
 
@@ -186,14 +210,16 @@ class Agent:
         )
 
         self.graph = graph_builder.compile(
-            checkpointer=self.memory
+            checkpointer=self.checkpointer,
+            store=self.store,
         )
 
-    async def run_superstep(self, message,history):
+    async def run_superstep(self, message, history, user_id: str = "default"):
         config = {"configurable":{"thread_id": self.agent_id}}
 
         state = {
             "messages":[HumanMessage(content=message)],
+            "user_id": user_id,
         }
 
         result = await self.graph.ainvoke(
