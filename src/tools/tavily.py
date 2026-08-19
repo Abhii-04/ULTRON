@@ -13,10 +13,16 @@ def Internet_search(query:str,max_results:int=5,topic:Literal["general","news"]=
         raise RuntimeError("api key not found")
     tavily = TavilyClient(api_key)
     print("ran tavily tool")
-    results= tavily.search(
+    response= tavily.search(
         query = query,
         max_results = max_results,
         topic = topic,
         included_raw_content=included_raw_content,
         )
-    return str(results)[:5000]
+    results=[]
+    for result in response["results"]:
+        results.append({
+            "title":result["title"],
+            "content":result["content"][:400]
+        })
+    return results

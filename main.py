@@ -9,12 +9,15 @@ async def main():
 
     await agent.setup()
 
-    while True:
-        user_input = input("You: ")
+    try:
+        while True:
+            user_input = input("You: ")
 
-        if user_input.lower() in {"exit", "quit"}:
-            break
+            if user_input.lower() in {"exit", "quit"}:
+                break
 
-        await agent.run_superstep(user_input, [])
+            await agent.run_superstep(user_input, [])
+    finally:
+        await agent.close()
 
 asyncio.run(main())

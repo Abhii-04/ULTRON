@@ -1,3 +1,5 @@
+from email.header import decode_header
+from html import unescape
 import re
 import threading
 
@@ -59,6 +61,23 @@ def _redact_sensitive_text(value: str) -> str:
     return value
 
 
+def _decode_mime_header(value: str) -> str:
+    parts = []
+    for part, encoding in decode_header(value):
+        if isinstance(part, bytes):
+            parts.append(part.decode(encoding or "utf-8", errors="replace"))
+        else:
+            parts.append(part)
+    return "".join(parts)
+
+
+def _clean_compact_text(value: str) -> str:
+    decoded = _decode_mime_header(value)
+    decoded = unescape(decoded)
+    decoded = re.sub(r"\s+", " ", decoded).strip()
+    return _redact_sensitive_text(decoded)
+
+
 def _compact_message(message: dict) -> dict:
     compact = {
         "id": message.get("id"),
@@ -68,7 +87,7 @@ def _compact_message(message: dict) -> dict:
         "snippet": message.get("snippet"),
     }
     return {
-        key: _redact_sensitive_text(value) if isinstance(value, str) else value
+        key: _clean_compact_text(value) if isinstance(value, str) else value
         for key, value in compact.items()
         if value
     }
@@ -78,7 +97,7 @@ def _compact_search_gmail(**kwargs):
     results = _invoke_gmail_tool("search_gmail", kwargs)
     if isinstance(results, list):
         return [_compact_message(result) for result in results]
-    return str(results)[:5000]
+    return str(results)[:2000]
 
 
 def _get_gmail_message(**kwargs):

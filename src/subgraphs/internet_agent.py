@@ -24,34 +24,19 @@ import langchain
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic.v1 import tools
-from googleapiclient.errors import HttpError
 
 
 #Tools import
 from src.tools.tavily import Internet_search
 
 from src.state import State
-from src.tools.Gmail import gmail_tools
 
 load_dotenv(override=True)
 
 
 def handle_tool_error(error: Exception) -> str:
     """Return tool failures to the model instead of crashing the CLI."""
-    error_text = str(error)
-
-    if isinstance(error, HttpError) and (
-        "accessNotConfigured" in error_text
-        or "Gmail API has not been used" in error_text
-    ):
-        return (
-            "Gmail API request failed because the Gmail API is disabled for "
-            "the Google Cloud project used by credentials.json. Enable the "
-            "Gmail API in Google Cloud Console for that OAuth project, wait a "
-            "few minutes for propagation, then retry."
-        )
-
-    return f"Tool call failed: {type(error).__name__}: {error_text}"
+    return f"Tool call failed: {type(error).__name__}: {error}"
 
 def llm():
     api_key = os.getenv('DEEPSEEK_API_KEY')
@@ -72,16 +57,17 @@ class InternetAgent:
     - Web research
     - Current or recent information
     - Source-backed answers
-    - Email or account actions
 
     Do NOT use for:
+    - Gmail or email tasks
+    - LinkedIn MCP tasks
     - Browser interaction
     - File editing
     - Shell commands
     
     """
     def __init__(self):
-        self.Internet_llm=None
+        self.internet_llm=None
         self.tools=None
         self.agent_id=None
         self.memory = None
@@ -91,29 +77,36 @@ class InternetAgent:
     def setup(self):
         self.tools = [
             Internet_search,
-            *gmail_tools(),
             ]
-        Internet_llm = llm()
-        self.Internet_llm = Internet_llm.bind_tools(self.tools)
         self.memory=InMemorySaver()
 
-    def Internet_agent(self,state:State):
+    async def setup_tools(self):
+        self.tools = [
+            Internet_search,
+        ]
+        internet_llm = llm()
+        self.internet_llm = internet_llm.bind_tools(self.tools)
+
+    async def close(self):
+        return None
+
+    def internet_agent(self,state:State):
         system_message =f"""You are an internet research agent.
 
 Your work area:
 - Use the Internet_search tool for current, recent, external, or source-backed information.
-- Use the Gmail tools for email tasks such as searching, reading, drafting, or sending Gmail messages.
 - Search when facts may have changed or when the user asks for latest/current information.
 - Summarize findings clearly and mention source names or URLs when the tool result provides them.
 - If search results conflict, say so and prefer more authoritative or recent sources.
 
 Boundaries:
-- Do not claim to open pages interactively, operate a browser, run code, or read local files.
-- Ask for explicit user confirmation before sending email or making other external account changes.
+- Do not claim to operate a browser or interact with websites beyond search results.
+- Do not claim to run code or read local files.
+- Do not handle Gmail or email tasks. Say that the Gmail workflow should handle them.
+- Do not handle LinkedIn MCP tasks. Say that the LinkedIn workflow should handle them.
 - If the task does not need internet research, answer briefly that it should be handled by the general assistant.
 - If the available search results are insufficient, say what is missing instead of guessing.
-- Never write DSML, XML, JSON, or any other tool-call markup in your response text. If you need a tool, use the bound tool-calling interface only.
-- If a Gmail tool reports that the Gmail API is disabled or not configured, do not retry the same Gmail tool. Explain that the user must enable the Gmail API in Google Cloud Console first.
+- Do not describe tool calls or tool syntax in your response text. If you need a tool, use the bound tool-calling interface only.
 
 The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}. """
 
@@ -136,12 +129,12 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}. """
         if not found_system_message:
             messages = [SystemMessage(content=system_message)]+messages
 
-        response = self.Internet_llm.invoke(messages)
+        response = self.internet_llm.invoke(messages)
         return{
             "messages":[response]
         }
 
-    def Internet_agent_router(self,state:State):
+    def internet_agent_router(self,state:State):
         last_message=state["messages"][-1]
 
         if getattr(last_message,"tool_calls",None):
@@ -196,25 +189,26 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}. """
     #     return {"stop": False}
     
     async def build_graph(self):
+        await self.setup_tools()
         graph_builder = StateGraph(State)
 
         # Nodes
-        graph_builder.add_node("Internet_agent", self.Internet_agent)
+        graph_builder.add_node("internet_agent", self.internet_agent)
         graph_builder.add_node("tools", ToolNode(self.tools, handle_tool_errors=handle_tool_error))
         # graph_builder.add_node("stoponloop", self.stoponloop)
 
         # Edges
-        graph_builder.add_edge(START, "Internet_agent")
+        graph_builder.add_edge(START, "internet_agent")
 
         graph_builder.add_conditional_edges(
-            "Internet_agent",
-            self.Internet_agent_router,
+            "internet_agent",
+            self.internet_agent_router,
             {
                 "tools": "tools",
                 END: END,
             },
         )
-        graph_builder.add_edge("tools", "Internet_agent")
+        graph_builder.add_edge("tools", "internet_agent")
 
         self.graph = graph_builder.compile(
             checkpointer=self.memory

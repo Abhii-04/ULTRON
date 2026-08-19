@@ -12,3 +12,4 @@ class State(TypedDict, total=False):
     filepath: Annotated[str, "the path to the file to be modified"]
     current_file_content: Annotated[Optional[str], "the content of the file currently being edited or created"]
     user_id: str
+    gmail_action: str
