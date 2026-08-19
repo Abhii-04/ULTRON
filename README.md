@@ -1,7 +1,7 @@
 # ULTRON
 
-Although still in development but still quite useful for my day to day need and yess the readme file is AI generated ;)
 ULTRON is a Python multi-agent assistant built with LangGraph. It routes each request to the right specialist workflow, then lets that workflow use the tools it is allowed to use.
+Although still in development but still quite useful for my day to day need and yess the readme file is AI generated ;)
 
 The current build includes:
 
