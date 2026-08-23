@@ -1,35 +1,30 @@
 import os
-from dotenv import load_dotenv
-from typing import Any, Dict, List
+from typing import Any
 
-#Langgraph imports
-from langgraph.graph import StateGraph, START, END
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, START, StateGraph
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
-#Langchain imports
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
-#Subgraph Imports
-from src.subgraphs.internet_agent import InternetAgent
+from src.state import State
 from src.subgraphs.assistant import Assistant
 from src.subgraphs.gmail_agent import Gmail_agent
+from src.subgraphs.internet_agent import InternetAgent
 from src.subgraphs.linkedin_agent import LinkedinAgent
-
-from src.state import State
 
 load_dotenv(override=True)
 
-llm=ChatOpenAI(
-api_key = os.getenv('DEEPSEEK_API_KEY'),
-model = 'deepseek-v4-flash',
-base_url = "https://api.deepseek.com",
+llm = ChatOpenAI(
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    model="deepseek-v4-flash",
+    base_url="https://api.deepseek.com",
 )
 
 
-def _latest_human_text(messages: List[Any]) -> str:
+def _latest_human_text(messages: list[Any]) -> str:
     for message in reversed(messages):
         if isinstance(message, HumanMessage) and isinstance(message.content, str):
             return message.content
@@ -57,13 +52,14 @@ def _deterministic_route_from_text(text: str) -> str | None:
 
     return None
 
+
 class Agent:
     def __init__(self):
-        self.internet_graph=None
-        self.assistant_graph=None
-        self.gmail_graph=None
-        self.linkedin_graph=None
-        self.graph=None
+        self.internet_graph = None
+        self.assistant_graph = None
+        self.gmail_graph = None
+        self.linkedin_graph = None
+        self.graph = None
         self.agent_id = None
         self.checkpointer = None
         self.store = None
@@ -99,21 +95,17 @@ class Agent:
         self.store = InMemoryStore()
         await self.build_graph()
 
-    def get_user_profile(self, store: BaseStore, user_id: str) -> Dict[str, Any]:
+    def get_user_profile(self, store: BaseStore, user_id: str) -> dict[str, Any]:
         memory = store.get(("user", user_id), "profile")
         return memory.value if memory else {}
 
-    def update_user_profile(
-        self,
-        user_id: str,
-        profile: Dict[str, Any],
-    ) -> None:
+    def update_user_profile(self, user_id: str, profile: dict[str, Any]) -> None:
         if self.store is None:
             raise RuntimeError("Memory store has not been initialized. Call setup() first.")
 
         self.store.put(("user", user_id), "profile", profile)
 
-    def orchestrator(self, state: State, store: BaseStore) -> Dict[str, Any]:
+    def orchestrator(self, state: State, store: BaseStore) -> dict[str, Any]:
         user_id = state.get("user_id", "default")
         profile = self.get_user_profile(store, user_id)
         deterministic_route = _deterministic_route_from_text(
@@ -121,9 +113,7 @@ class Agent:
         )
 
         if deterministic_route is not None:
-            return {
-                "next": deterministic_route,
-            }
+            return {"next": deterministic_route}
 
         system_message = SystemMessage(
             content=f"""
@@ -187,46 +177,19 @@ class Agent:
             """
         )
 
-        messages = [system_message] + state["messages"]
-        response = llm.invoke(messages)
-
+        response = llm.invoke([system_message] + state["messages"])
         route = response.content.strip().lower()
 
         if route not in ("gmail", "linkedin", "internet", "assistant"):
             route = "assistant"
 
-        return {
-            "next": route,
-        }
+        return {"next": route}
 
     def orchestrator_router(self, state: State):
         route = state.get("next")
-
-        if route == "gmail":
-            return "gmail"
-
-        if route == "linkedin":
-            return "linkedin"
-
-        if route == "internet":
-            return "internet"
-
-        if route == "assistant":
-            return "assistant"
-
+        if route in {"gmail", "linkedin", "internet", "assistant"}:
+            return route
         return END
-
-    def format_conversation(self,messages:List[Any])->str:
-        conversation = "Conversation history: \n\n"
-
-        for message in messages:
-            if isinstance(message,HumanMessage):
-                conversation += f"User: {message.content}\n"
-            elif isinstance(message,AIMessage):
-                text  = message.content or "[Tools use]"
-                conversation += f"Assistant: {text}\n"
-
-        return conversation
 
     def sanitize_final_content(self, content: Any) -> Any:
         if isinstance(content, str) and "DSML" in content and "tool_calls" in content:
@@ -240,59 +203,30 @@ class Agent:
         return content
 
     async def build_graph(self):
-        if self.internet_graph is None:
-            raise RuntimeError(
-                "Internet graph has not been initialized. "
-                "Call setup() before build_graph()."
+        missing_graphs = [
+            name
+            for name, graph in (
+                ("Internet", self.internet_graph),
+                ("Assistant", self.assistant_graph),
+                ("Gmail", self.gmail_graph),
+                ("LinkedIn", self.linkedin_graph),
             )
-        if self.assistant_graph is None:
+            if graph is None
+        ]
+        if missing_graphs:
             raise RuntimeError(
-                "Assistant graph has not been initialized. "
-                "Call setup() before build_graph()."
-            )
-        if self.gmail_graph is None:
-            raise RuntimeError(
-                "Gmail graph has not been initialized. "
-                "Call setup() before build_graph()."
-            )
-        if self.linkedin_graph is None:
-            raise RuntimeError(
-                "LinkedIn graph has not been initialized. "
+                f"{', '.join(missing_graphs)} graph has not been initialized. "
                 "Call setup() before build_graph()."
             )
 
         graph_builder = StateGraph(State)
+        graph_builder.add_node("orchestrator", self.orchestrator)
+        graph_builder.add_node("internet", self.internet_graph)
+        graph_builder.add_node("gmail", self.gmail_graph)
+        graph_builder.add_node("linkedin", self.linkedin_graph)
+        graph_builder.add_node("assistant", self.assistant_graph)
 
-        graph_builder.add_node(
-            "orchestrator",
-            self.orchestrator
-        )
-
-        graph_builder.add_node(
-            "internet",
-            self.internet_graph
-        )
-
-        graph_builder.add_node(
-            "gmail",
-            self.gmail_graph
-        )
-
-        graph_builder.add_node(
-            "linkedin",
-            self.linkedin_graph
-        )
-
-        graph_builder.add_node(
-            "assistant",
-            self.assistant_graph
-        )
-
-        graph_builder.add_edge(
-            START,
-            "orchestrator"
-        )
-
+        graph_builder.add_edge(START, "orchestrator")
         graph_builder.add_conditional_edges(
             "orchestrator",
             self.orchestrator_router,
@@ -304,26 +238,10 @@ class Agent:
                 END: END,
             },
         )
-
-        graph_builder.add_edge(
-            "internet",
-            END
-        )
-
-        graph_builder.add_edge(
-            "gmail",
-            END
-        )
-
-        graph_builder.add_edge(
-            "linkedin",
-            END
-        )
-
-        graph_builder.add_edge(
-            "assistant",
-            END
-        )
+        graph_builder.add_edge("internet", END)
+        graph_builder.add_edge("gmail", END)
+        graph_builder.add_edge("linkedin", END)
+        graph_builder.add_edge("assistant", END)
 
         self.graph = graph_builder.compile(
             checkpointer=self.checkpointer,
@@ -337,17 +255,13 @@ class Agent:
             await self.linkedin_agent.close()
 
     async def run_superstep(self, message, history, user_id: str = "default"):
-        config = {"configurable":{"thread_id": self.agent_id}}
-
+        config = {"configurable": {"thread_id": self.agent_id}}
         state = {
-            "messages":[HumanMessage(content=message)],
+            "messages": [HumanMessage(content=message)],
             "user_id": user_id,
         }
 
-        result = await self.graph.ainvoke(
-            state,
-            config=config
-        )
+        result = await self.graph.ainvoke(state, config=config)
 
         final_message = result["messages"][-1]
         final_message.content = self.sanitize_final_content(final_message.content)

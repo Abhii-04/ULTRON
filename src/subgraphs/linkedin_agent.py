@@ -11,6 +11,7 @@ from langgraph.prebuilt import ToolNode
 
 from src.state import State
 from src.tools.mcp import MCPToolSessionManager
+from src.tools.read_skill import read_skill
 
 load_dotenv(override=True)
 
@@ -60,6 +61,7 @@ class LinkedinAgent:
         self.memory = InMemorySaver()
         self.mcp_manager = MCPToolSessionManager()
         self.tools = await self.mcp_manager.start()
+        self.tools.append(read_skill)
         self.linkedin_llm = llm().bind_tools(self.tools)
 
     async def close(self):
@@ -88,6 +90,12 @@ Boundaries:
 - If the user asks for something outside LinkedIn job/company/post research, say which workflow should handle it.
 - Do not describe tool calls or tool syntax in your response text. If you need a tool, use the bound tool-calling interface only.
 - If a LinkedIn MCP tool fails, explain the failure briefly and ask for any missing required input.
+
+Skills:
+- You have access to read_skill, which reads local instructions from skills/<skill>/SKILL.md.
+- When the user names a skill or the task clearly matches one, call read_skill before using LinkedIn tools or answering and follow those instructions.
+- If read_skill reports a missing, invalid, or empty skill, create a concise report in your response with: Error, Cause, Solution, and Next step.
+- Do not invent skill instructions when the skill file cannot be read.
 
 The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
 """

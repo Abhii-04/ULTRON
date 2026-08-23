@@ -14,7 +14,6 @@ from langchain_google_community.gmail.utils import (
     get_gmail_credentials,
 )
 from langchain_core.tools import StructuredTool
-
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -40,11 +39,7 @@ def gmail_toolkit():
         credentials=credentials
     )
 
-    toolkit = GmailToolkit(
-        api_resource=api_resource
-    )
-    
-    return toolkit
+    return GmailToolkit(api_resource=api_resource)
 
 
 def _invoke_gmail_tool(tool_name: str, tool_input: dict):
