@@ -16,6 +16,7 @@ Allowed LinkedIn MCP tool names are filtered in `src/tools/mcp.py`:
 - `get_saved_jobs`
 - `search_companies`
 - `get_company_profile`
+- `get_company_employees`
 - `search_posts`
 
 The agent also has `read_skill`.
@@ -28,6 +29,7 @@ Use this skill when the request mentions or implies:
 - saved LinkedIn jobs
 - job details for a LinkedIn job ID or URL
 - company search, employer research, or company profiles
+- company employee lookup or employee demographics
 - hiring posts, recruiter posts, or informal job opportunities on LinkedIn
 - comparing LinkedIn job results
 
@@ -53,6 +55,7 @@ Use:
 - `get_saved_jobs` when the user asks for saved jobs.
 - `search_companies` when the user wants employer/company discovery.
 - `get_company_profile` when the user asks about one company.
+- `get_company_employees` when the user asks for company employees or employee demographics.
 - `search_posts` for hiring posts, recruiter posts, or informal opportunities.
 
 Do not describe tool calls or tool syntax in the final answer.

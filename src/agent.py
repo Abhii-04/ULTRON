@@ -2,10 +2,11 @@ import os
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
@@ -14,6 +15,7 @@ from src.subgraphs.assistant import Assistant
 from src.subgraphs.gmail_agent import Gmail_agent
 from src.subgraphs.internet_agent import InternetAgent
 from src.subgraphs.linkedin_agent import LinkedinAgent
+from src.tools.fileManagment import create_file, delete_file, read_file, write_file
 
 load_dotenv(override=True)
 
@@ -53,6 +55,11 @@ def _deterministic_route_from_text(text: str) -> str | None:
     return None
 
 
+def handle_file_tool_error(error: Exception) -> str:
+    """Return file tool failures to the model instead of crashing the graph."""
+    return f"File tool call failed: {type(error).__name__}: {error}"
+
+
 class Agent:
     def __init__(self):
         self.internet_graph = None
@@ -67,8 +74,12 @@ class Agent:
         self.assistant_agent = None
         self.gmail_agent = None
         self.linkedin_agent = None
+        self.orchestrator_agent = None
+        self.file_tools = []
 
     async def setup(self):
+        self.file_tools = [create_file, read_file, write_file, delete_file]
+        self.orchestrator_agent = llm.bind_tools(self.file_tools)
         internet = InternetAgent()
         internet.setup()
         await internet.build_graph()
@@ -122,11 +133,23 @@ class Agent:
             Stored user profile for routing context:
             {profile}
 
-            Read the user's latest request and choose the agent that should handle it.
+            Read the user's latest request and either handle project file-management
+            work with your tools or choose the agent that should handle the request.
 
             Tool-call formatting rule:
             Do not describe tool calls or tool syntax in your text.
-            Your response must be exactly one route word.
+
+            File-management rule:
+            If the user's request is to create, read, write, edit, update, or delete
+            a local project file, use the available file-management tools directly.
+            File paths are project-relative. Do not route local file-management tasks
+            to another agent unless the request also requires Gmail, LinkedIn, or
+            internet research. After a file tool completes, give a concise final
+            answer that reports what happened.
+
+            Routing rule:
+            If no file-management tool is needed, your response must be exactly
+            one route word.
 
             Priority rule:
             If the request is about Gmail, email, inbox messages, email drafts,
@@ -169,6 +192,9 @@ class Agent:
 
             When unsure whether internet is needed, choose internet.
 
+            For file-management tasks, do not return a route word. Use the
+            appropriate file tool instead.
+
             Return ONLY one word:
             gmail
             linkedin
@@ -177,7 +203,14 @@ class Agent:
             """
         )
 
-        response = llm.invoke([system_message] + state["messages"])
+        response = self.orchestrator_agent.invoke([system_message] + state["messages"])
+
+        if getattr(response, "tool_calls", None):
+            return {"messages": [response], "next": "orchestrator_tools"}
+
+        if isinstance(state["messages"][-1], ToolMessage):
+            return {"messages": [response], "next": END}
+
         route = response.content.strip().lower()
 
         if route not in ("gmail", "linkedin", "internet", "assistant"):
@@ -187,6 +220,8 @@ class Agent:
 
     def orchestrator_router(self, state: State):
         route = state.get("next")
+        if route == "orchestrator_tools":
+            return route
         if route in {"gmail", "linkedin", "internet", "assistant"}:
             return route
         return END
@@ -221,6 +256,10 @@ class Agent:
 
         graph_builder = StateGraph(State)
         graph_builder.add_node("orchestrator", self.orchestrator)
+        graph_builder.add_node(
+            "orchestrator_tools",
+            ToolNode(self.file_tools, handle_tool_errors=handle_file_tool_error),
+        )
         graph_builder.add_node("internet", self.internet_graph)
         graph_builder.add_node("gmail", self.gmail_graph)
         graph_builder.add_node("linkedin", self.linkedin_graph)
@@ -235,9 +274,11 @@ class Agent:
                 "linkedin": "linkedin",
                 "internet": "internet",
                 "assistant": "assistant",
+                "orchestrator_tools": "orchestrator_tools",
                 END: END,
             },
         )
+        graph_builder.add_edge("orchestrator_tools", "orchestrator")
         graph_builder.add_edge("internet", END)
         graph_builder.add_edge("gmail", END)
         graph_builder.add_edge("linkedin", END)

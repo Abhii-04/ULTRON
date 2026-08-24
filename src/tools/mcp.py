@@ -17,6 +17,7 @@ LINKEDIN_JOB_TOOL_NAMES = {
     "get_saved_jobs",
     "search_companies",
     "get_company_profile",
+    "get_company_employees",
     "search_posts",
 }
 

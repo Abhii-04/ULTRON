@@ -7,3 +7,5 @@ class State(TypedDict, total=False):
     next: str
     user_id: str
     feedback_on_work: str
+    internet_skill: str
+    linkedin_skill: str

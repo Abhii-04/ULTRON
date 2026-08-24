@@ -42,7 +42,6 @@ class InternetAgent:
         self.graph = None
 
     def setup(self):
-        self.tools = [Internet_search, read_skill]
         self.memory = InMemorySaver()
 
     async def setup_tools(self):
@@ -76,6 +75,9 @@ Skills:
 - If read_skill reports a missing, invalid, or empty skill, create a concise report in your response with: Error, Cause, Solution, and Next step.
 - Do not invent skill instructions when the skill file cannot be read.
 
+Loaded skill instructions:
+{state.get("internet_skill", "")}
+
 The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}. """
 
         if state.get("feedback_on_work"):
@@ -96,6 +98,11 @@ With this feedback, please continue the assignment, ensuring that you meet the s
         response = self.internet_llm.invoke(messages)
         return {"messages": [response]}
 
+    def load_internet_skill(self, _state: State):
+        return {
+            "internet_skill": read_skill.invoke({"skill": "internet_search"})
+        }
+
     def internet_agent_router(self, state: State):
         if getattr(state["messages"][-1], "tool_calls", None):
             return "tools"
@@ -104,13 +111,15 @@ With this feedback, please continue the assignment, ensuring that you meet the s
     async def build_graph(self):
         await self.setup_tools()
         graph_builder = StateGraph(State)
+        graph_builder.add_node("load_internet_skill", self.load_internet_skill)
         graph_builder.add_node("internet_agent", self.internet_agent)
         graph_builder.add_node(
             "tools",
             ToolNode(self.tools, handle_tool_errors=handle_tool_error),
         )
 
-        graph_builder.add_edge(START, "internet_agent")
+        graph_builder.add_edge(START, "load_internet_skill")
+        graph_builder.add_edge("load_internet_skill", "internet_agent")
         graph_builder.add_conditional_edges(
             "internet_agent",
             self.internet_agent_router,

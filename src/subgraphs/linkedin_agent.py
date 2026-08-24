@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -29,6 +29,11 @@ def llm():
         api_key=api_key,
         model="deepseek-v4-flash",
         base_url="https://api.deepseek.com",
+        extra_body={
+            "thinking": {
+                "type": "disabled"
+            }
+        },
     )
 
 
@@ -38,7 +43,7 @@ class LinkedinAgent:
     - LinkedIn job search
     - LinkedIn job details
     - Saved LinkedIn jobs
-    - LinkedIn company search and company profiles
+    - LinkedIn company search, company profiles, and company employees
     - LinkedIn hiring post searches
 
     Do NOT use for:
@@ -60,7 +65,8 @@ class LinkedinAgent:
     async def setup(self, _state: Any = None):
         self.memory = InMemorySaver()
         self.mcp_manager = MCPToolSessionManager()
-        self.tools = await self.mcp_manager.start()
+        mcp_tools = await self.mcp_manager.start()
+        self.tools = list(mcp_tools)
         self.tools.append(read_skill)
         self.linkedin_llm = llm().bind_tools(self.tools)
 
@@ -75,7 +81,7 @@ Your work area:
 - Use configured LinkedIn MCP tools for job hunting and company research.
 - Search LinkedIn jobs using the MCP tool schemas directly.
 - Use job IDs from search results when the user asks for job details.
-- Search companies and company profiles when the user asks about employers.
+- Search companies, company profiles, and company employees when the user asks about employers.
 - Search LinkedIn posts for hiring posts or informal opportunities.
 - For every job search result, include the apply link or LinkedIn job URL when the tool result provides one.
 - For every job search result, include the basic fields users need to act: title, company, location, job ID, apply/job link, posting date, work type, and experience level when available.
@@ -97,6 +103,9 @@ Skills:
 - If read_skill reports a missing, invalid, or empty skill, create a concise report in your response with: Error, Cause, Solution, and Next step.
 - Do not invent skill instructions when the skill file cannot be read.
 
+Loaded skill instructions:
+{state.get("linkedin_skill", "")}
+
 The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
 """
 
@@ -116,6 +125,11 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
             "messages": [response]
         }
 
+    def load_linkedin_skill(self, _state: State):
+        return {
+            "linkedin_skill": read_skill.invoke({"skill": "linkedin"})
+        }
+
     def linkedin_agent_router(self, state: State):
         last_message = state["messages"][-1]
 
@@ -129,13 +143,15 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
 
         graph_builder = StateGraph(State)
 
+        graph_builder.add_node("load_linkedin_skill", self.load_linkedin_skill)
         graph_builder.add_node("linkedin_agent", self.linkedin_agent)
         graph_builder.add_node(
             "tools",
             ToolNode(self.tools, handle_tool_errors=handle_tool_error),
         )
 
-        graph_builder.add_edge(START, "linkedin_agent")
+        graph_builder.add_edge(START, "load_linkedin_skill")
+        graph_builder.add_edge("load_linkedin_skill", "linkedin_agent")
         graph_builder.add_conditional_edges(
             "linkedin_agent",
             self.linkedin_agent_router,
