@@ -12,6 +12,8 @@ from src.state import State
 from src.tools.read_skill import read_skill
 from src.tools.tavily import Internet_search
 
+from headroom.integrations.langchain import create_compress_tool_messages_node
+
 load_dotenv(override=True)
 
 
@@ -117,6 +119,9 @@ With this feedback, please continue the assignment, ensuring that you meet the s
             "tools",
             ToolNode(self.tools, handle_tool_errors=handle_tool_error),
         )
+        graph_builder.add_node("compress",create_compress_tool_messages_node(
+            min_tokens_to_compress=1000,
+        ))
 
         graph_builder.add_edge(START, "load_internet_skill")
         graph_builder.add_edge("load_internet_skill", "internet_agent")
@@ -128,7 +133,8 @@ With this feedback, please continue the assignment, ensuring that you meet the s
                 END: END,
             },
         )
-        graph_builder.add_edge("tools", "internet_agent")
+        graph_builder.add_edge("tools", "compress")
+        graph_builder.add_edge("compress","internet_agent")
 
         self.graph = graph_builder.compile(checkpointer=self.memory)
 

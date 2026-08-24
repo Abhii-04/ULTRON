@@ -17,6 +17,8 @@ from src.subgraphs.internet_agent import InternetAgent
 from src.subgraphs.linkedin_agent import LinkedinAgent
 from src.tools.fileManagment import create_file, delete_file, read_file, write_file
 
+from headroom.integrations.langchain import create_compress_tool_messages_node
+
 load_dotenv(override=True)
 
 llm = ChatOpenAI(
@@ -264,6 +266,8 @@ class Agent:
         graph_builder.add_node("gmail", self.gmail_graph)
         graph_builder.add_node("linkedin", self.linkedin_graph)
         graph_builder.add_node("assistant", self.assistant_graph)
+        graph_builder.add_node("compress",create_compress_tool_messages_node)  #useless node as of now as there is nothing to compress in orchestration layer as of now 
+
 
         graph_builder.add_edge(START, "orchestrator")
         graph_builder.add_conditional_edges(

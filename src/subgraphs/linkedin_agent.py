@@ -13,6 +13,8 @@ from src.state import State
 from src.tools.mcp import MCPToolSessionManager
 from src.tools.read_skill import read_skill
 
+from headroom.integrations.langchain import create_compress_tool_messages_node
+
 load_dotenv(override=True)
 
 
@@ -144,6 +146,9 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
         graph_builder = StateGraph(State)
 
         graph_builder.add_node("load_linkedin_skill", self.load_linkedin_skill)
+        graph_builder.add_node("compress",create_compress_tool_messages_node(
+            min_tokens_to_compress=1000,
+        ))
         graph_builder.add_node("linkedin_agent", self.linkedin_agent)
         graph_builder.add_node(
             "tools",
@@ -160,7 +165,8 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
                 END: END,
             },
         )
-        graph_builder.add_edge("tools", "linkedin_agent")
+        graph_builder.add_edge("tools", "compress")
+        graph_builder.add_edge("compress","linkedin_agent")
 
         self.graph = graph_builder.compile(checkpointer=self.memory)
 

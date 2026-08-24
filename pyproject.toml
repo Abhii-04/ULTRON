@@ -7,7 +7,6 @@ requires-python = ">=3.11"
 dependencies = [
     "dotenv>=0.9.9",
     "google-auth-oauthlib>=1.4.0",
-    "headroom-ai[langchain]>=0.36.5",
     "langchain-core>=1.0.0",
     "langchain-google-community>=5.0.0",
     "langchain-mcp-adapters>=0.3.0",
