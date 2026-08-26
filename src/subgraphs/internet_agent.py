@@ -9,8 +9,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from src.state import State
+from src.nodes.HITL import ask_question, halt_on_risky_tools
 from src.tools.read_skill import read_skill
-from src.tools.tavily import Internet_search
+from src.tools.tavily import web_search
 
 from headroom.integrations.langchain import create_compress_tool_messages_node
 
@@ -47,7 +48,7 @@ class InternetAgent:
         self.memory = InMemorySaver()
 
     async def setup_tools(self):
-        self.tools = [Internet_search, read_skill]
+        self.tools = [web_search, read_skill, ask_question]
         self.internet_llm = llm().bind_tools(self.tools)
 
     async def close(self):
@@ -73,6 +74,7 @@ Boundaries:
 
 Skills:
 - You have access to read_skill, which reads local instructions from skills/<skill>/SKILL.md.
+- You have access to ask_question for clarification from the human when required.
 - When the user names a skill or the task clearly matches one, call read_skill before researching or answering and follow those instructions.
 - If read_skill reports a missing, invalid, or empty skill, create a concise report in your response with: Error, Cause, Solution, and Next step.
 - Do not invent skill instructions when the skill file cannot be read.
@@ -115,6 +117,7 @@ With this feedback, please continue the assignment, ensuring that you meet the s
         graph_builder = StateGraph(State)
         graph_builder.add_node("load_internet_skill", self.load_internet_skill)
         graph_builder.add_node("internet_agent", self.internet_agent)
+        graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node(
             "tools",
             ToolNode(self.tools, handle_tool_errors=handle_tool_error),
@@ -129,8 +132,16 @@ With this feedback, please continue the assignment, ensuring that you meet the s
             "internet_agent",
             self.internet_agent_router,
             {
-                "tools": "tools",
+                "tools": "toolcall",
                 END: END,
+            },
+        )
+        graph_builder.add_conditional_edges(
+            "toolcall",
+            lambda state: "tools" if state.get("hitl_decision") == "approved" else "internet_agent",
+            {
+                "tools": "tools",
+                "internet_agent": "internet_agent",
             },
         )
         graph_builder.add_edge("tools", "compress")

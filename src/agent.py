@@ -9,8 +9,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
+from langgraph.types import Command
 
 from src.state import State
+from src.nodes.dynamic_agent_selection import dynamic_agent_selection
+from src.nodes.HITL import ask_question, halt_on_risky_tools
 from src.subgraphs.assistant import Assistant
 from src.subgraphs.gmail_agent import Gmail_agent
 from src.subgraphs.internet_agent import InternetAgent
@@ -18,6 +21,8 @@ from src.subgraphs.linkedin_agent import LinkedinAgent
 from src.tools.fileManagment import create_file, delete_file, read_file, write_file
 
 from headroom.integrations.langchain import create_compress_tool_messages_node
+
+from src.nodes.dynamic_prompt import prompt_modifier
 
 load_dotenv(override=True)
 
@@ -27,40 +32,9 @@ llm = ChatOpenAI(
     base_url="https://api.deepseek.com",
 )
 
-
-def _latest_human_text(messages: list[Any]) -> str:
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage) and isinstance(message.content, str):
-            return message.content
-    return ""
-
-
-def _deterministic_route_from_text(text: str) -> str | None:
-    latest_text = text.lower()
-
-    if any(word in latest_text for word in ("gmail", "email", "mail", "inbox")):
-        return "gmail"
-
-    if "linkedin" in latest_text and any(
-        phrase in latest_text
-        for phrase in (
-            "job",
-            "saved job",
-            "company",
-            "profile",
-            "hiring post",
-            "search post",
-        )
-    ):
-        return "linkedin"
-
-    return None
-
-
 def handle_file_tool_error(error: Exception) -> str:
     """Return file tool failures to the model instead of crashing the graph."""
     return f"File tool call failed: {type(error).__name__}: {error}"
-
 
 class Agent:
     def __init__(self):
@@ -80,7 +54,7 @@ class Agent:
         self.file_tools = []
 
     async def setup(self):
-        self.file_tools = [create_file, read_file, write_file, delete_file]
+        self.file_tools = [create_file, read_file, write_file, delete_file, ask_question]
         self.orchestrator_agent = llm.bind_tools(self.file_tools)
         internet = InternetAgent()
         internet.setup()
@@ -121,90 +95,10 @@ class Agent:
     def orchestrator(self, state: State, store: BaseStore) -> dict[str, Any]:
         user_id = state.get("user_id", "default")
         profile = self.get_user_profile(store, user_id)
-        deterministic_route = _deterministic_route_from_text(
-            _latest_human_text(state["messages"])
-        )
-
-        if deterministic_route is not None:
-            return {"next": deterministic_route}
-
+        #system_message
         system_message = SystemMessage(
-            content=f"""
-            You are the routing controller for a four-workflow assistant system.
-
-            Stored user profile for routing context:
-            {profile}
-
-            Read the user's latest request and either handle project file-management
-            work with your tools or choose the agent that should handle the request.
-
-            Tool-call formatting rule:
-            Do not describe tool calls or tool syntax in your text.
-
-            File-management rule:
-            If the user's request is to create, read, write, edit, update, or delete
-            a local project file, use the available file-management tools directly.
-            File paths are project-relative. Do not route local file-management tasks
-            to another agent unless the request also requires Gmail, LinkedIn, or
-            internet research. After a file tool completes, give a concise final
-            answer that reports what happened.
-
-            Routing rule:
-            If no file-management tool is needed, your response must be exactly
-            one route word.
-
-            Priority rule:
-            If the request is about Gmail, email, inbox messages, email drafts,
-            reading email, searching email, or sending email, route to gmail.
-
-            If the request is about LinkedIn job search, job details, saved jobs,
-            company research, company profiles, or hiring-post searches, route to linkedin.
-
-            If the request mentions or requires the internet, web, online sources, URLs,
-            websites, search, lookup, browsing, current
-            information, recent information, latest information, external information,
-            connected online accounts, MCP-backed services,
-            source-backed research, or facts that may have changed, route to internet.
-
-            Route to gmail when the task needs:
-            - Gmail search, Gmail reading, Gmail thread lookup, Gmail drafts, or Gmail sending
-            - Email inbox actions
-            - Email account actions
-            - Finding, summarizing, drafting, replying to, or sending email
-
-            Route to internet when the task needs:
-            - Any task over the internet, web, online services, websites, URLs, or search engines
-            - Current, recent, or external information
-            - Web search or source-backed research
-            - News, prices, schedules, product availability, laws, docs, or facts that may have changed
-            - Comparing options using online sources
-            - Looking up documentation, APIs, errors, package behavior, or examples from online sources
-
-            Route to linkedin when the task needs:
-            - LinkedIn job search, job details, saved jobs, company research, company profiles, or hiring-post searches
-            - MCP-backed LinkedIn job tools
-
-            Route to assistant when the task needs:
-            - General reasoning
-            - Writing, editing, planning, summarizing, brainstorming, or explaining
-            - Help based only on the conversation context
-            - Any task that does not require internet, web, online, current, recent,
-            external, source-backed information, LinkedIn, Gmail, email,
-            or connected account tools
-
-            When unsure whether internet is needed, choose internet.
-
-            For file-management tasks, do not return a route word. Use the
-            appropriate file tool instead.
-
-            Return ONLY one word:
-            gmail
-            linkedin
-            internet
-            assistant
-            """
+            content= prompt_modifier(state)
         )
-
         response = self.orchestrator_agent.invoke([system_message] + state["messages"])
 
         if getattr(response, "tool_calls", None):
@@ -257,7 +151,9 @@ class Agent:
             )
 
         graph_builder = StateGraph(State)
-        graph_builder.add_node("orchestrator", self.orchestrator)
+        # graph_builder.add_node("dynamic_agent_selection", dynamic_agent_selection)
+        graph_builder.add_node("agent", self.orchestrator)
+        graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node(
             "orchestrator_tools",
             ToolNode(self.file_tools, handle_tool_errors=handle_file_tool_error),
@@ -269,20 +165,37 @@ class Agent:
         graph_builder.add_node("compress",create_compress_tool_messages_node)  #useless node as of now as there is nothing to compress in orchestration layer as of now 
 
 
-        graph_builder.add_edge(START, "orchestrator")
         graph_builder.add_conditional_edges(
-            "orchestrator",
+            START,
+            dynamic_agent_selection,
+            {
+                "linkedin": "linkedin",
+                "internet": "internet",
+                "orchestrator": "agent",
+            }
+        )
+        # graph_builder.add_edge("dynamic_agent_selection", "agent")
+        graph_builder.add_conditional_edges(
+            "agent",
             self.orchestrator_router,
             {
                 "gmail": "gmail",
                 "linkedin": "linkedin",
                 "internet": "internet",
                 "assistant": "assistant",
-                "orchestrator_tools": "orchestrator_tools",
+                "orchestrator_tools": "toolcall",
                 END: END,
             },
         )
-        graph_builder.add_edge("orchestrator_tools", "orchestrator")
+        graph_builder.add_conditional_edges(
+            "toolcall",
+            lambda state: "orchestrator_tools" if state.get("hitl_decision") == "approved" else "agent",
+            {
+                "orchestrator_tools": "orchestrator_tools",
+                "agent": "agent",
+            },
+        )
+        graph_builder.add_edge("orchestrator_tools", "agent")
         graph_builder.add_edge("internet", END)
         graph_builder.add_edge("gmail", END)
         graph_builder.add_edge("linkedin", END)
@@ -301,12 +214,19 @@ class Agent:
 
     async def run_superstep(self, message, history, user_id: str = "default"):
         config = {"configurable": {"thread_id": self.agent_id}}
-        state = {
-            "messages": [HumanMessage(content=message)],
-            "user_id": user_id,
-        }
+        if isinstance(message, Command):
+            state = message
+        else:
+            state = {
+                "messages": [HumanMessage(content=message)],
+                "user_id": user_id,
+            }
 
         result = await self.graph.ainvoke(state, config=config)
+
+        if "__interrupt__" in result:
+            print(result["__interrupt__"][-1].value)
+            return result
 
         final_message = result["messages"][-1]
         final_message.content = self.sanitize_final_content(final_message.content)

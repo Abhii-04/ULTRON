@@ -9,3 +9,4 @@ class State(TypedDict, total=False):
     feedback_on_work: str
     internet_skill: str
     linkedin_skill: str
+    hitl_decision: str

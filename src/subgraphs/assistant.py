@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from src.state import State
+from src.nodes.HITL import ask_question, halt_on_risky_tools
 from src.tools.read_skill import read_skill
 
 load_dotenv(override=True)
@@ -34,7 +35,7 @@ class Assistant:
         self.graph = None
 
     def setup(self):
-        self.tools = [read_skill]
+        self.tools = [read_skill, ask_question]
         self.assistant_llm = llm().bind_tools(self.tools)
         self.memory = InMemorySaver()
 
@@ -55,6 +56,7 @@ Boundaries:
 
 Skills:
 - You have access to read_skill, which reads local instructions from skills/<skill>/SKILL.md.
+- You have access to ask_question for clarification from the human when required.
 - When the user names a skill or the task clearly matches one, call read_skill before answering and follow those instructions.
 - If read_skill reports a missing, invalid, or empty skill, create a concise report in your response with: Error, Cause, Solution, and Next step.
 - Do not invent skill instructions when the skill file cannot be read.
@@ -114,6 +116,7 @@ Response style:
     async def build_graph(self):
         graph_builder = StateGraph(State)
         graph_builder.add_node("assistant", self.assistant)
+        graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node("tools", ToolNode(self.tools, handle_tool_errors=True))
         graph_builder.add_node("stoponloop", self.stoponloop)
 
@@ -122,8 +125,16 @@ Response style:
             "assistant",
             self.assistant_router,
             {
-                "tools": "tools",
+                "tools": "toolcall",
                 END: END,
+            },
+        )
+        graph_builder.add_conditional_edges(
+            "toolcall",
+            lambda state: "tools" if state.get("hitl_decision") == "approved" else "assistant",
+            {
+                "tools": "tools",
+                "assistant": "assistant",
             },
         )
         graph_builder.add_edge("tools", "stoponloop")

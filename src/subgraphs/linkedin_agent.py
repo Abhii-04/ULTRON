@@ -10,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from src.state import State
+from src.nodes.HITL import ask_question, halt_on_risky_tools
 from src.tools.mcp import MCPToolSessionManager
 from src.tools.read_skill import read_skill
 
@@ -70,6 +71,7 @@ class LinkedinAgent:
         mcp_tools = await self.mcp_manager.start()
         self.tools = list(mcp_tools)
         self.tools.append(read_skill)
+        self.tools.append(ask_question)
         self.linkedin_llm = llm().bind_tools(self.tools)
 
     async def close(self):
@@ -101,6 +103,7 @@ Boundaries:
 
 Skills:
 - You have access to read_skill, which reads local instructions from skills/<skill>/SKILL.md.
+- You have access to ask_question for clarification from the human when required.
 - When the user names a skill or the task clearly matches one, call read_skill before using LinkedIn tools or answering and follow those instructions.
 - If read_skill reports a missing, invalid, or empty skill, create a concise report in your response with: Error, Cause, Solution, and Next step.
 - Do not invent skill instructions when the skill file cannot be read.
@@ -150,6 +153,7 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
             min_tokens_to_compress=1000,
         ))
         graph_builder.add_node("linkedin_agent", self.linkedin_agent)
+        graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node(
             "tools",
             ToolNode(self.tools, handle_tool_errors=handle_tool_error),
@@ -161,8 +165,16 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
             "linkedin_agent",
             self.linkedin_agent_router,
             {
-                "tools": "tools",
+                "tools": "toolcall",
                 END: END,
+            },
+        )
+        graph_builder.add_conditional_edges(
+            "toolcall",
+            lambda state: "tools" if state.get("hitl_decision") == "approved" else "linkedin_agent",
+            {
+                "tools": "tools",
+                "linkedin_agent": "linkedin_agent",
             },
         )
         graph_builder.add_edge("tools", "compress")
