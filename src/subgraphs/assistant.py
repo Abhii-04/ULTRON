@@ -40,7 +40,10 @@ class Assistant:
         self.memory = InMemorySaver()
 
     def assistant(self, state: State):
-        system_message = """You are a general-purpose assistant.
+        system_message = f"""You are a general-purpose assistant.
+
+Task instructions from the orchestrator:
+{state.get("task_instructions") or "Handle the latest user request."}
 
 Your work area:
 - Answer general questions using the conversation context and your existing knowledge.

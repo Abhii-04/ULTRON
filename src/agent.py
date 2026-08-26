@@ -13,14 +13,13 @@ from langgraph.types import Command
 
 from src.state import State
 from src.nodes.dynamic_agent_selection import dynamic_agent_selection
+from src.nodes.context_handoff import create_task_instructions_handoff_tool
 from src.nodes.HITL import ask_question, halt_on_risky_tools
 from src.subgraphs.assistant import Assistant
 from src.subgraphs.gmail_agent import Gmail_agent
 from src.subgraphs.internet_agent import InternetAgent
 from src.subgraphs.linkedin_agent import LinkedinAgent
 from src.tools.fileManagment import create_file, delete_file, read_file, write_file
-
-from headroom.integrations.langchain import create_compress_tool_messages_node
 
 from src.nodes.dynamic_prompt import prompt_modifier
 
@@ -52,10 +51,29 @@ class Agent:
         self.linkedin_agent = None
         self.orchestrator_agent = None
         self.file_tools = []
+        self.handoff_tools = []
 
     async def setup(self):
         self.file_tools = [create_file, read_file, write_file, delete_file, ask_question]
-        self.orchestrator_agent = llm.bind_tools(self.file_tools)
+        self.handoff_tools = [
+            create_task_instructions_handoff_tool(
+                agent_name="gmail",
+                description="Transfer Gmail, email, inbox search, or draft tasks to the Gmail agent.",
+            ),
+            create_task_instructions_handoff_tool(
+                agent_name="linkedin",
+                description="Transfer LinkedIn job, company, profile, saved job, or hiring post tasks to the LinkedIn agent.",
+            ),
+            create_task_instructions_handoff_tool(
+                agent_name="internet",
+                description="Transfer current, recent, web search, URL, or source-backed research tasks to the internet agent.",
+            ),
+            create_task_instructions_handoff_tool(
+                agent_name="assistant",
+                description="Transfer general reasoning, writing, planning, explanation, or summarization tasks to the assistant agent.",
+            ),
+        ]
+        self.orchestrator_agent = llm.bind_tools(self.file_tools + self.handoff_tools)
         internet = InternetAgent()
         internet.setup()
         await internet.build_graph()
@@ -156,13 +174,12 @@ class Agent:
         graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node(
             "orchestrator_tools",
-            ToolNode(self.file_tools, handle_tool_errors=handle_file_tool_error),
+            ToolNode(self.file_tools + self.handoff_tools, handle_tool_errors=handle_file_tool_error),
         )
         graph_builder.add_node("internet", self.internet_graph)
         graph_builder.add_node("gmail", self.gmail_graph)
         graph_builder.add_node("linkedin", self.linkedin_graph)
         graph_builder.add_node("assistant", self.assistant_graph)
-        graph_builder.add_node("compress",create_compress_tool_messages_node)  #useless node as of now as there is nothing to compress in orchestration layer as of now 
 
 
         graph_builder.add_conditional_edges(
@@ -189,10 +206,10 @@ class Agent:
         )
         graph_builder.add_conditional_edges(
             "toolcall",
-            lambda state: "orchestrator_tools" if state.get("hitl_decision") == "approved" else "agent",
+            lambda state: "orchestrator_tools" if state.get("hitl_decision") == "approved" else END,
             {
                 "orchestrator_tools": "orchestrator_tools",
-                "agent": "agent",
+                END: END,
             },
         )
         graph_builder.add_edge("orchestrator_tools", "agent")
@@ -212,7 +229,7 @@ class Agent:
         if self.linkedin_agent is not None:
             await self.linkedin_agent.close()
 
-    async def run_superstep(self, message, history, user_id: str = "default"):
+    async def run_superstep(self, message, history, user_id: str = "default", emit_output: bool = True):
         config = {"configurable": {"thread_id": self.agent_id}}
         if isinstance(message, Command):
             state = message
@@ -220,16 +237,19 @@ class Agent:
             state = {
                 "messages": [HumanMessage(content=message)],
                 "user_id": user_id,
+                "task_instructions": "",
             }
 
         result = await self.graph.ainvoke(state, config=config)
 
         if "__interrupt__" in result:
-            print(result["__interrupt__"][-1].value)
+            if emit_output:
+                print(result["__interrupt__"][-1].value)
             return result
 
         final_message = result["messages"][-1]
         final_message.content = self.sanitize_final_content(final_message.content)
 
-        print(final_message.content)
+        if emit_output:
+            print(final_message.content)
         return result

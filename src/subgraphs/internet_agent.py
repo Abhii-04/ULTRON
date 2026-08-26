@@ -57,6 +57,9 @@ class InternetAgent:
     def internet_agent(self, state: State):
         system_message = f"""You are an internet research agent.
 
+Task instructions from the orchestrator:
+{state.get("task_instructions") or "Handle the latest user request."}
+
 Your work area:
 - Use the Internet_search tool for current, recent, external, or source-backed information.
 - Search when facts may have changed or when the user asks for latest/current information.

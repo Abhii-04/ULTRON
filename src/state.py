@@ -10,3 +10,4 @@ class State(TypedDict, total=False):
     internet_skill: str
     linkedin_skill: str
     hitl_decision: str
+    task_instructions: str

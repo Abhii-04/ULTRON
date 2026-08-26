@@ -16,5 +16,6 @@ dependencies = [
     "langgraph>=1.2.10",
     "langgraph-supervisor>=0.0.31",
     "langgraph-swarm>=0.1.0",
+    "rich>=15.0.0",
     "tavily>=1.1.0",
 ]

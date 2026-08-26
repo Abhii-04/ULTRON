@@ -83,6 +83,7 @@ def _format_gmail_search_results(results: Any) -> str:
 
 class GmailState(TypedDict, total=False):
     messages: Annotated[List[Any], add_messages]
+    task_instructions: str
     gmail_action: str
     query: str
     message: str
@@ -114,7 +115,7 @@ class Gmail_agent:
 
     def prepare_gmail_state(self, state: GmailState):
         messages = state.get("messages", [])
-        latest_message = _latest_human_text(messages)
+        latest_message = state.get("task_instructions") or _latest_human_text(messages)
         if not latest_message and state.get("gmail_action") and state.get("query"):
             return {}
 

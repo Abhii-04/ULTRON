@@ -5,7 +5,7 @@ def dynamic_agent_selection(state:State):
     last_msg = state["messages"][-1].content.lower()
 
     if any(word in last_msg for word in ["linkedin"]):
-        return "Linkedin"
+        return "linkedin"
     elif any(word in last_msg for word in ["web search","internet search","search","latest","current"]):
         return "internet"
     else:

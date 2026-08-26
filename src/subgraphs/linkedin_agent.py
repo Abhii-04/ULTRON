@@ -81,6 +81,9 @@ class LinkedinAgent:
     def linkedin_agent(self, state: State):
         system_message = f"""You are a LinkedIn job research agent.
 
+Task instructions from the orchestrator:
+{state.get("task_instructions") or "Handle the latest user request."}
+
 Your work area:
 - Use configured LinkedIn MCP tools for job hunting and company research.
 - Search LinkedIn jobs using the MCP tool schemas directly.

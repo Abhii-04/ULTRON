@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -31,7 +32,7 @@ class TerminalUI:
             "LinkedIn | Gmail | Internet | Files | Assistant",
             style="bright_black",
         )
-        body = Table.grid(padding=(0, 2))
+        body = Table.grid(padding=(0, 3))
         body.add_column(justify="center")
         body.add_row(title)
         body.add_row(subtitle)
@@ -45,6 +46,15 @@ class TerminalUI:
             )
         )
 
+    def show_setup(self) -> None:
+        self.console.print(
+            Panel(
+                Text("Initializing agent graph and external tool sessions...", style="cyan"),
+                border_style="bright_black",
+                padding=(0, 1),
+            )
+        )
+
     def show_ready(self) -> None:
         modules = Table.grid(expand=True)
         modules.add_column(ratio=1)
@@ -53,24 +63,49 @@ class TerminalUI:
         modules.add_column(ratio=1)
         modules.add_row(
             Text("CORE ONLINE", style="bold green"),
-            Text("LINKEDIN MCP", style="cyan"),
-            Text("GMAIL LINK", style="cyan"),
-            Text("WEB SCAN", style="cyan"),
+            Text("LINKEDIN", style="cyan"),
+            Text("GMAIL", style="cyan"),
+            Text("WEB", style="cyan"),
         )
         self.console.print(Panel(modules, border_style="green", padding=(0, 1)))
-        self.console.print(Text("Awaiting command input.", style="dim"))
+        self.console.print(Text("Type a request. Use 'exit' or 'quit' to shutdown.", style="dim"))
+        self.show_idle_line()
 
     def ask(self) -> str:
-        return Prompt.ask("[bold cyan]COMMAND[/bold cyan]").strip()
+        return Prompt.ask("[bold cyan]ultron[/bold cyan]").strip()
+
+    def ask_interrupt(self, interrupt_value: Any) -> str:
+        if isinstance(interrupt_value, dict) and "awaiting" in interrupt_value:
+            tool_name = interrupt_value.get("awaiting")
+            args = interrupt_value.get("args", {})
+            self.console.print(
+                Panel(
+                    Markdown(f"Approve tool execution?\n\n**Tool:** `{tool_name}`\n\n**Args:** `{args}`"),
+                    title="Approval Required",
+                    border_style="yellow",
+                    padding=(1, 2),
+                )
+            )
+            return Prompt.ask("[bold yellow]approve?[/bold yellow]", default="no").strip()
+
+        self.console.print(
+            Panel(
+                Markdown(str(interrupt_value)),
+                title="Input Required",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+        )
+        return Prompt.ask("[bold yellow]reply[/bold yellow]").strip()
 
     def thinking(self):
         return self.console.status(
-            "[bold cyan]processing command through agent graph[/bold cyan]",
+            "[bold cyan]running agent graph[/bold cyan]",
             spinner="dots",
         )
 
     def show_idle_line(self) -> None:
-        self.console.print()
+        self.console.print(Rule(style="bright_black"))
 
     def show_response(self, content: Any, summary: RunSummary) -> None:
         route_label = summary.route.upper() if summary.route else "DIRECT"
@@ -87,6 +122,16 @@ class TerminalUI:
             Panel(
                 Markdown(str(content)),
                 border_style="bright_black",
+                padding=(1, 2),
+            )
+        )
+
+    def show_interrupt(self, interrupt_value: Any) -> None:
+        self.console.print(
+            Panel(
+                Markdown(str(interrupt_value)),
+                title="Paused",
+                border_style="yellow",
                 padding=(1, 2),
             )
         )
@@ -110,10 +155,25 @@ class TerminalUI:
             )
         )
 
-    async def run_agent_turn(self, agent: Any, command: str) -> None:
+    async def run_agent_turn(self, agent: Any, command: Any) -> dict[str, Any]:
         started = perf_counter()
         with self.thinking():
             result = await agent.run_superstep(command, [], emit_output=False)
+
+        if "__interrupt__" in result:
+            elapsed = perf_counter() - started
+            interrupt_value = result["__interrupt__"][-1].value
+            self.console.print(
+                Panel(
+                    Text(f"Graph paused after {elapsed:.2f}s", style="yellow"),
+                    title="Awaiting Human Input",
+                    border_style="yellow",
+                    padding=(0, 1),
+                )
+            )
+            self.show_interrupt(interrupt_value)
+            self.show_idle_line()
+            return result
 
         final_message = result["messages"][-1]
         route = str(result.get("next") or "")
@@ -123,3 +183,4 @@ class TerminalUI:
             RunSummary(route=route, latency_seconds=elapsed),
         )
         self.show_idle_line()
+        return result
