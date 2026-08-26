@@ -12,16 +12,22 @@ from langgraph.store.memory import InMemoryStore
 from langgraph.types import Command
 
 from src.state import State
-from src.nodes.dynamic_agent_selection import dynamic_agent_selection
-from src.nodes.context_handoff import create_task_instructions_handoff_tool
-from src.nodes.HITL import ask_question, halt_on_risky_tools
+
+#Agents imports 
 from src.subgraphs.assistant import Assistant
 from src.subgraphs.gmail_agent import Gmail_agent
 from src.subgraphs.internet_agent import InternetAgent
 from src.subgraphs.linkedin_agent import LinkedinAgent
+
+#Tools imports
 from src.tools.fileManagment import create_file, delete_file, read_file, write_file
 
+
+#Nodes imports 
 from src.nodes.dynamic_prompt import prompt_modifier
+from src.nodes.dynamic_agent_selection import dynamic_agent_selection
+from src.nodes.context_handoff import create_task_instructions_handoff_tool
+from src.nodes.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
 
 load_dotenv(override=True)
 
@@ -54,7 +60,8 @@ class Agent:
         self.handoff_tools = []
 
     async def setup(self):
-        self.file_tools = [create_file, read_file, write_file, delete_file, ask_question]
+        file_tools = [create_file, read_file, write_file, delete_file, ask_question]
+        self.file_tools = add_approval_to_risky_tools(file_tools)
         self.handoff_tools = [
             create_task_instructions_handoff_tool(
                 agent_name="gmail",

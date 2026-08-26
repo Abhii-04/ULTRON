@@ -1,4 +1,6 @@
-from langchain_core.tools import tool
+from typing import Callable
+from langchain_core.tools import BaseTool, tool
+from langgraph.graph.state import RunnableConfig
 from langgraph.types import interrupt
 from langchain_core.messages import HumanMessage,AIMessage,ToolMessage
 from src.state import State
@@ -11,6 +13,43 @@ RISKY_TOOLS=[
     "create_gmail_draft",
     "send_gmail_message",
 ]
+
+
+###universal tool wrapper to use HITL cause mcp tools  cant be controlled with the curent settings
+def add_approval(main_tool:Callable|BaseTool)->BaseTool:
+    """wrap a tool to support human in the loop review"""
+    if not isinstance(main_tool,BaseTool):
+        main_tool = tool(main_tool)
+    
+    @tool(
+        main_tool.name,
+        description = main_tool.description,
+        args_schema= main_tool.args_schema
+    )
+    def call_main_tool_with_hitl(config:RunnableConfig, **tool_input):
+        descision =interrupt({
+            "awaiting": main_tool.name,
+            "args":tool_input,
+        })
+
+        #tool approved
+        if isinstance(descision,dict) and descision.get("approved"):
+            return main_tool.invoke(tool_input,config)
+
+        #tool rejected
+        return "cancelled by human.continue without executing that tool and provide next steps"
+    return call_main_tool_with_hitl
+
+
+def add_approval_to_risky_tools(tools: list[BaseTool],) -> list[BaseTool]:
+    """Wrap only risky tools."""
+
+    return [
+        add_approval(current_tool)
+        if current_tool.name in RISKY_TOOLS
+        else current_tool
+        for current_tool in tools
+    ]
 
 
 #use this HITL for security purpose as it will always block risky tools and ask for human approval.

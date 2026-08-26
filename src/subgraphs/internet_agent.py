@@ -9,11 +9,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from src.state import State
-from src.nodes.HITL import ask_question, halt_on_risky_tools
+
 from src.tools.read_skill import read_skill
 from src.tools.tavily import web_search
 
 from headroom.integrations.langchain import create_compress_tool_messages_node
+from src.nodes.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
 
 load_dotenv(override=True)
 
@@ -48,7 +49,8 @@ class InternetAgent:
         self.memory = InMemorySaver()
 
     async def setup_tools(self):
-        self.tools = [web_search, read_skill, ask_question]
+        tools = [web_search, read_skill, ask_question]
+        self.tools = add_approval_to_risky_tools(tools)
         self.internet_llm = llm().bind_tools(self.tools)
 
     async def close(self):

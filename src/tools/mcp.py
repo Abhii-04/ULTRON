@@ -8,7 +8,6 @@ from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools as load_session_mcp_tools
 
-
 MCP_CONFIG_PATH = Path(__file__).resolve().parents[2] / "mcp_config.json"
 
 LINKEDIN_JOB_TOOL_NAMES = {
@@ -194,7 +193,6 @@ def filter_mcp_tools_for_ultron(tools):
         wrap_mcp_tool(tool)
         for tool in filtered_tools
     ]
-
 
 class MCPToolSessionManager:
     """Keep MCP stdio sessions open across tool calls."""
