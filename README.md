@@ -19,13 +19,6 @@ Orchestrator with file tools and handoff tools
     +-- transfer_to_assistant -> general reasoning and local skills
 ```
 
-## Resume Highlights
-
-- Built a LangGraph-based multi-agent orchestrator in Python with custom handoff tools routing task instructions across assistant, internet, Gmail, LinkedIn, and file workflows.
-- Implemented human-in-the-loop safety for risky LangChain tools, interrupting create/write/delete file and Gmail draft/send actions until explicit user approval before execution.
-- Integrated Tavily, Google Gmail Toolkit, and LinkedIn MCP sessions with structured tools, output compaction, redaction, and resilient provider failure handling.
-- Designed custom context handoffs using LangGraph Commands and injected state to transfer control between specialized subgraphs while preserving task instructions.
-
 ## Features
 
 | Area | What it does |
