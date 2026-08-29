@@ -1,45 +1,41 @@
 # ULTRON
 
-ULTRON is a Python LangGraph multi-agent assistant that routes user requests across specialized workflows for general assistance, web research, Gmail, LinkedIn, and local file operations. It uses DeepSeek through the OpenAI-compatible LangChain client, LangGraph state machines, MCP tool sessions, Tavily search, Gmail OAuth tooling, and human-in-the-loop approval for sensitive actions.
+ULTRON is a self-learning terminal-based LangGraph assistant with direct chat, local file tools, web research, Gmail tooling, LinkedIn MCP tooling, and long-term memory through mem0 backed by Qdrant.
 
-```text
-User request
-    |
-    v
-Dynamic route selection
-    |
-    +-- Direct route: LinkedIn / Internet
-    |
-    v
-Orchestrator with file tools and handoff tools
-    |
-    +-- transfer_to_gmail     -> Gmail OAuth search/draft workflow
-    +-- transfer_to_linkedin  -> LinkedIn MCP job/company/post tools
-    +-- transfer_to_internet  -> Tavily-backed web research
-    +-- transfer_to_assistant -> general reasoning and local skills
-```
+## What It Does
 
-## Features
-
-| Area | What it does |
+| Area | Behavior |
 | --- | --- |
-| Routing | Uses keyword-based pre-routing plus an LLM orchestrator to send requests to focused LangGraph subgraphs. |
-| Handoffs | Creates custom LangGraph handoff tools that pass task instructions, preserve state, and transfer control with `Command(goto=...)`. |
-| Skills | Agents can load local instructions from `skills/<skill>/SKILL.md` through `read_skill`. |
-| Internet | Uses Tavily for current or source-backed web research and filters noisy or inaccessible result content. |
-| Gmail | Searches Gmail and creates drafts through Gmail OAuth helpers, compacting results and redacting sensitive snippets. |
-| LinkedIn | Loads approved LinkedIn MCP tools from `mcp_config.json`, keeps stdio sessions open, and trims large job-search outputs. |
-| Safety | Wraps risky file and Gmail tools with human approval interrupts before execution. |
-| Memory | Uses process-local LangGraph checkpointing and in-memory profile storage. |
-| Terminal UI | Provides a Rich-powered CLI with setup status, latency summaries, approval prompts, and interrupt handling. |
+| Orchestrator | Answers simple requests directly, calls local file tools, or hands work to a focused subgraph. |
+| Memory | Uses `mem0ai` OSS with DeepSeek for memory extraction, Hugging Face embeddings, and Qdrant collection `ultron_memories` for vector storage. |
+| Internet | Routes current/recent/source-backed requests to the Tavily-backed internet subgraph. |
+| Gmail | Searches Gmail and creates drafts through Gmail OAuth tooling. |
+| LinkedIn | Loads selected LinkedIn MCP tools from `mcp_config.json`. |
+| Safety | Uses human-in-the-loop approval before risky file and Gmail actions. |
+| Terminal UI | Provides Rich-based prompts, run status, responses, approval prompts, and error panels. |
 
 ## Architecture
 
-The main `Agent` builds one top-level `StateGraph` with four compiled subgraphs: `Assistant`, `InternetAgent`, `Gmail_agent`, and `LinkedinAgent`. The graph first applies dynamic route selection for obvious LinkedIn or internet requests. Other requests go through the orchestrator, which can either execute local file tools or call a handoff tool that transfers the task to a specialized subgraph with explicit task instructions.
+```text
+User input
+    |
+    v
+dynamic_agent_selection
+    |
+    +-- LinkedIn keywords/current route -> linkedin subgraph
+    +-- Internet/search/current route   -> internet subgraph
+    |
+    v
+orchestrator
+    |
+    +-- direct answer
+    +-- local file tools
+    +-- transfer_to_gmail
+    +-- transfer_to_linkedin
+    +-- transfer_to_internet
+```
 
-Each LLM-backed agent binds only the tools needed for its domain. The internet workflow uses Tavily and Headroom compression for long tool outputs. The LinkedIn workflow starts MCP sessions from `mcp_config.json`, filters available MCP tools to job/company/post operations, and compacts search results before returning them to the model. The Gmail workflow uses LangChain Google Community Gmail tools behind thread-safe wrappers and exposes deterministic search and draft nodes.
-
-Sensitive actions are gated by LangGraph interrupts. File creation, file writes, file deletion, Gmail draft creation, and Gmail sending pause execution until the terminal user approves or rejects the operation.
+The orchestrator retrieves relevant memories before calling the model, injects them into the system prompt, and stores useful direct assistant turns back into mem0/Qdrant.
 
 ## Project Structure
 
@@ -48,42 +44,52 @@ Sensitive actions are gated by LangGraph interrupts. File creation, file writes,
 +-- main.py
 +-- mcp_config.json
 +-- pyproject.toml
++-- requirements.txt
++-- README.md
 +-- skills/
 |   +-- internet_search/SKILL.md
 |   +-- linkedin/SKILL.md
-|   +-- playwright/SKILL.md
 +-- src/
     +-- agent.py
+    +-- memory.py
     +-- state.py
+    +-- terminal_ui.py
+    +-- middlewares/
+    |   +-- HITL.py
+    |   +-- context_handoff.py
+    |   +-- trim_tool_content.py
+    +-- nodes/
+    |   +-- dynamic_agent_selection.py
+    |   +-- dynamic_prompt.py
+    |   +-- swarm.py
     +-- subgraphs/
-    |   +-- assistant.py
     |   +-- gmail_agent.py
     |   +-- internet_agent.py
     |   +-- linkedin_agent.py
-    +-- nodes/
-    |   +-- context_handoff.py
-    |   +-- dynamic_agent_selection.py
-    |   +-- dynamic_prompt.py
-    |   +-- HITL.py
     +-- tools/
         +-- Gmail.py
         +-- fileManagment.py
-        +-- linkedin_tool.py
         +-- mcp.py
         +-- read_skill.py
         +-- tavily.py
 ```
 
+## Requirements
+
+- Python `>=3.11`
+- `uv`
+- Qdrant running on `localhost:6333`
+- DeepSeek API key
+- Tavily API key for web search
+- Gmail OAuth files if Gmail features are used
+- LinkedIn MCP setup if LinkedIn features are used
+
 ## Setup
+
+Install dependencies:
 
 ```bash
 uv sync
-```
-
-Or install with pip:
-
-```bash
-pip install -r requirements.txt
 ```
 
 Create `.env`:
@@ -93,38 +99,106 @@ DEEPSEEK_API_KEY=your_deepseek_key
 TAVILY_API_KEY=your_tavily_key
 ```
 
-Optional Gmail files at the repo root:
+Start Qdrant locally if it is not already running:
+
+```bash
+docker run -p 6333:6333 -v "$(pwd)/qdrant_storage:/qdrant/storage" qdrant/qdrant
+```
+
+Optional Gmail files at repo root:
 
 ```text
 credentials.json
 token.json
 ```
 
-Optional LinkedIn MCP setup is configured in `mcp_config.json`.
+Optional LinkedIn MCP config lives in:
+
+```text
+mcp_config.json
+```
+
+## Memory
+
+Memory is configured in `src/memory.py`:
+
+```text
+provider: mem0 OSS
+llm: DeepSeek
+embedder: Hugging Face multi-qa-MiniLM-L6-cos-v1
+vector store: Qdrant
+collection: ultron_memories
+dimensions: 384
+```
+
+`MEM0_API_KEY` is not required for this local Qdrant-backed setup. That key is for hosted Mem0 Platform usage, not the local OSS `Memory.from_config(...)` path.
+
+First run may download model assets such as Hugging Face embeddings or spaCy resources.
 
 ## Run
+
+```bash
+uv run main.py
+```
+
+or:
 
 ```bash
 uv run python main.py
 ```
 
-Example prompts:
+Exit with:
 
 ```text
+exit
+quit
+```
+
+## Example Prompts
+
+```text
+hii i am abhishek
+remember that i prefer short direct answers
 search the web for the latest LangGraph MCP examples
 search my gmail for invoices from today
 search linkedin for entry level AI jobs in Bengaluru
-write a short project update for this repo
+create a file named notes.md with a short project update
 ```
-
-Exit with `quit` or `exit`.
 
 ## Validation
 
-There is no committed test suite in the cleaned repo. Basic validation:
+Compile the app:
 
 ```bash
-python -m compileall main.py src
+uv run python -m compileall main.py src
 ```
 
-For graph-level smoke testing, instantiate `Agent`, attach stub subgraphs, and call `build_graph()` without external services.
+Check Qdrant connectivity:
+
+```bash
+uv run python - <<'PY'
+from qdrant_client import QdrantClient
+
+client = QdrantClient(host="localhost", port=6333)
+print(client.get_collections())
+PY
+```
+
+Check the memory collection:
+
+```bash
+uv run python - <<'PY'
+from qdrant_client import QdrantClient
+
+client = QdrantClient(host="localhost", port=6333)
+info = client.get_collection("ultron_memories")
+print("points:", info.points_count)
+print("vectors:", info.config.params.vectors)
+PY
+```
+
+## Notes
+
+- `src/nodes/swarm.py` is preserved, but the main entrypoint uses `src/agent.py`.
+- `src/middlewares/trim_tool_content.py` is preserved for tool-output trimming.
+- Deleted scratch/dead files should stay out of the app path unless they are intentionally reintroduced.

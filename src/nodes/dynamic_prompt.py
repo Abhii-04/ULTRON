@@ -26,8 +26,6 @@ def prompt_modifier(state:State):
     - transfer_to_gmail for Gmail and email tasks.
     - transfer_to_linkedin for LinkedIn jobs, companies, profiles, and hiring posts.
     - transfer_to_internet for web searches, URLs, current information, and external research.
-    - transfer_to_assistant for complex reasoning, writing, planning, explanations, and summarization.
-
     When transferring, call exactly one transfer tool with clear task_instructions.
 
     Never transfer simple questions you can answer directly. Never call multiple transfer tools. When unsure whether current external information is required, use transfer_to_internet.
@@ -37,6 +35,5 @@ def prompt_modifier(state:State):
     gmail
     linkedin
     internet
-    assistant
     """
     return prompt

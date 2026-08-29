@@ -13,7 +13,7 @@ from langgraph.types import Command
 
 from src.state import State
 
-#Agents imports 
+#Agents imports
 from src.subgraphs.gmail_agent import Gmail_agent
 from src.subgraphs.internet_agent import InternetAgent
 from src.subgraphs.linkedin_agent import LinkedinAgent
@@ -22,18 +22,15 @@ from src.subgraphs.linkedin_agent import LinkedinAgent
 from src.tools.fileManagment import create_file, delete_file, read_file, write_file
 
 
-#Nodes imports 
+#Nodes imports
 from src.nodes.dynamic_prompt import prompt_modifier
 from src.nodes.dynamic_agent_selection import dynamic_agent_selection
 from src.middlewares.context_handoff import create_task_instructions_handoff_tool
 from src.middlewares.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
 
-
-#import Memory
 from src.memory import memory
 
 load_dotenv(override=True)
-
 
 llm = ChatOpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
@@ -134,22 +131,17 @@ class Agent:
         if isinstance(messages[-1], ToolMessage):
             return {"messages": [response], "next": END}
 
-        if not getattr(response, "tool_calls",None):
-            try:
-                interaction=[
-                    {"role":"user","content":user_text},
-                    {"role":"assistant","content":response.content},
-                ]
+        try:
+            interaction=[
+                {"role":"user","content":user_text},
+                {"role":"assistant","content":response.content},
+            ]
 
-                result = memory.add(interaction,user_id = user_id)
-                print(f"memory saved:{len(result.get('results',[]))} memories added")
-            except Exception as e:
-                print(f"Error saving memory: {type(e).__name__}:{e}")
+            result = memory.add(interaction,user_id = user_id)
+            print(f"memory saved:{len(result.get('results',[]))} memories added")
+        except Exception as e:
+            print(f"Error saving memory: {type(e).__name__}:{e}")
         return {"messages":[response]}
-
-
-
-
 
     def orchestrator_router(self, state: State):
         route = state.get("next")
@@ -159,11 +151,8 @@ class Agent:
             return route
         return END
 
-
     async def build_graph(self):
-
         graph_builder = StateGraph(State)
-        # graph_builder.add_node("dynamic_agent_selection", dynamic_agent_selection)
         graph_builder.add_node("agent", self.orchestrator)
         graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node(
@@ -174,8 +163,6 @@ class Agent:
         graph_builder.add_node("gmail", self.gmail_graph)
         graph_builder.add_node("linkedin", self.linkedin_graph)
 
-
-
         graph_builder.add_conditional_edges(
             START,
             dynamic_agent_selection,
@@ -185,7 +172,6 @@ class Agent:
                 "orchestrator": "agent",
             }
         )
-        # graph_builder.add_edge("dynamic_agent_selection", "agent")
         graph_builder.add_conditional_edges(
             "agent",
             self.orchestrator_router,
@@ -239,8 +225,6 @@ class Agent:
                 print(result["__interrupt__"][-1].value)
             return result
 
-        final_message = result["messages"][-1]
-
         if emit_output:
-            print(final_message.content)
+            print(result["messages"][-1].content)
         return result

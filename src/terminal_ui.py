@@ -29,7 +29,7 @@ class TerminalUI:
         title = Text("ULTRON", style="bold cyan")
         title.append(" // TERMINAL INTELLIGENCE", style="dim cyan")
         subtitle = Text(
-            "LinkedIn | Gmail | Internet | Files | Assistant",
+            "LinkedIn | Gmail | Internet | Files",
             style="bright_black",
         )
         body = Table.grid(padding=(0, 3))
