@@ -11,3 +11,4 @@ class State(TypedDict, total=False):
     linkedin_skill: str
     hitl_decision: str
     task_instructions: str
+    mem0_user_id: str

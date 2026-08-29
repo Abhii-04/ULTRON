@@ -14,7 +14,6 @@ from langgraph.types import Command
 from src.state import State
 
 #Agents imports 
-from src.subgraphs.assistant import Assistant
 from src.subgraphs.gmail_agent import Gmail_agent
 from src.subgraphs.internet_agent import InternetAgent
 from src.subgraphs.linkedin_agent import LinkedinAgent
@@ -26,10 +25,15 @@ from src.tools.fileManagment import create_file, delete_file, read_file, write_f
 #Nodes imports 
 from src.nodes.dynamic_prompt import prompt_modifier
 from src.nodes.dynamic_agent_selection import dynamic_agent_selection
-from src.nodes.context_handoff import create_task_instructions_handoff_tool
-from src.nodes.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
+from src.middlewares.context_handoff import create_task_instructions_handoff_tool
+from src.middlewares.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
+
+
+#import Memory
+from src.memory import memory
 
 load_dotenv(override=True)
+
 
 llm = ChatOpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
@@ -44,7 +48,6 @@ def handle_file_tool_error(error: Exception) -> str:
 class Agent:
     def __init__(self):
         self.internet_graph = None
-        self.assistant_graph = None
         self.gmail_graph = None
         self.linkedin_graph = None
         self.graph = None
@@ -52,7 +55,6 @@ class Agent:
         self.checkpointer = None
         self.store = None
         self.internet_agent = None
-        self.assistant_agent = None
         self.gmail_agent = None
         self.linkedin_agent = None
         self.orchestrator_agent = None
@@ -75,10 +77,6 @@ class Agent:
                 agent_name="internet",
                 description="Transfer current, recent, web search, URL, or source-backed research tasks to the internet agent.",
             ),
-            create_task_instructions_handoff_tool(
-                agent_name="assistant",
-                description="Transfer general reasoning, writing, planning, explanation, or summarization tasks to the assistant agent.",
-            ),
         ]
         self.orchestrator_agent = llm.bind_tools(self.file_tools + self.handoff_tools)
         internet = InternetAgent()
@@ -97,83 +95,72 @@ class Agent:
         self.linkedin_graph = linkedin.graph
         self.linkedin_agent = linkedin
 
-        assistant = Assistant()
-        assistant.setup()
-        await assistant.build_graph()
-        self.assistant_graph = assistant.graph
-        self.assistant_agent = assistant
-
         self.checkpointer = InMemorySaver()
         self.store = InMemoryStore()
         await self.build_graph()
 
-    def get_user_profile(self, store: BaseStore, user_id: str) -> dict[str, Any]:
-        memory = store.get(("user", user_id), "profile")
-        return memory.value if memory else {}
-
-    def update_user_profile(self, user_id: str, profile: dict[str, Any]) -> None:
-        if self.store is None:
-            raise RuntimeError("Memory store has not been initialized. Call setup() first.")
-
-        self.store.put(("user", user_id), "profile", profile)
-
     def orchestrator(self, state: State, store: BaseStore) -> dict[str, Any]:
-        user_id = state.get("user_id", "default")
-        profile = self.get_user_profile(store, user_id)
-        #system_message
-        system_message = SystemMessage(
-            content= prompt_modifier(state)
+        messages = state["messages"]
+        user_id = state["user_id"]
+        user_text = messages[-1].content
+
+        try:
+            #retrieve relevant memories
+            memories = memory.search(user_text , filters = {"user_id":user_id},top_k=5)
+
+            #handle dict response format
+            memory_list = memories.get("results",[])
+        except Exception as e:
+            print(f"Error retrieving memory: {type(e).__name__}:{e}")
+            memory_list=[]
+
+        memory_context = "\n".join(
+            f"-{item['memory']}"
+            for item in memory_list
+            if item.get("memory")
         )
-        response = self.orchestrator_agent.invoke([system_message] + state["messages"])
+        system_message = SystemMessage(
+            content = (
+                f"{prompt_modifier(state)}\n\n"
+                f"Relevant long term user memories: \n{memory_context}"
+            )
+        )
+
+        response = self.orchestrator_agent.invoke([system_message, *messages])
 
         if getattr(response, "tool_calls", None):
             return {"messages": [response], "next": "orchestrator_tools"}
 
-        if isinstance(state["messages"][-1], ToolMessage):
+        if isinstance(messages[-1], ToolMessage):
             return {"messages": [response], "next": END}
 
-        route = response.content.strip().lower()
+        if not getattr(response, "tool_calls",None):
+            try:
+                interaction=[
+                    {"role":"user","content":user_text},
+                    {"role":"assistant","content":response.content},
+                ]
 
-        if route not in ("gmail", "linkedin", "internet", "assistant"):
-            route = "assistant"
+                result = memory.add(interaction,user_id = user_id)
+                print(f"memory saved:{len(result.get('results',[]))} memories added")
+            except Exception as e:
+                print(f"Error saving memory: {type(e).__name__}:{e}")
+        return {"messages":[response]}
 
-        return {"next": route}
+
+
+
 
     def orchestrator_router(self, state: State):
         route = state.get("next")
         if route == "orchestrator_tools":
             return route
-        if route in {"gmail", "linkedin", "internet", "assistant"}:
+        if route in {"gmail", "linkedin", "internet"}:
             return route
         return END
 
-    def sanitize_final_content(self, content: Any) -> Any:
-        if isinstance(content, str) and "DSML" in content and "tool_calls" in content:
-            return (
-                "The model produced raw tool-call markup instead of a structured "
-                "tool call, so no tool was executed. Re-run the request; if it "
-                "keeps happening, the model/provider is not returning tool calls "
-                "through the expected structured interface."
-            )
-
-        return content
 
     async def build_graph(self):
-        missing_graphs = [
-            name
-            for name, graph in (
-                ("Internet", self.internet_graph),
-                ("Assistant", self.assistant_graph),
-                ("Gmail", self.gmail_graph),
-                ("LinkedIn", self.linkedin_graph),
-            )
-            if graph is None
-        ]
-        if missing_graphs:
-            raise RuntimeError(
-                f"{', '.join(missing_graphs)} graph has not been initialized. "
-                "Call setup() before build_graph()."
-            )
 
         graph_builder = StateGraph(State)
         # graph_builder.add_node("dynamic_agent_selection", dynamic_agent_selection)
@@ -186,7 +173,7 @@ class Agent:
         graph_builder.add_node("internet", self.internet_graph)
         graph_builder.add_node("gmail", self.gmail_graph)
         graph_builder.add_node("linkedin", self.linkedin_graph)
-        graph_builder.add_node("assistant", self.assistant_graph)
+
 
 
         graph_builder.add_conditional_edges(
@@ -206,7 +193,6 @@ class Agent:
                 "gmail": "gmail",
                 "linkedin": "linkedin",
                 "internet": "internet",
-                "assistant": "assistant",
                 "orchestrator_tools": "toolcall",
                 END: END,
             },
@@ -223,7 +209,6 @@ class Agent:
         graph_builder.add_edge("internet", END)
         graph_builder.add_edge("gmail", END)
         graph_builder.add_edge("linkedin", END)
-        graph_builder.add_edge("assistant", END)
 
         self.graph = graph_builder.compile(
             checkpointer=self.checkpointer,
@@ -255,7 +240,6 @@ class Agent:
             return result
 
         final_message = result["messages"][-1]
-        final_message.content = self.sanitize_final_content(final_message.content)
 
         if emit_output:
             print(final_message.content)

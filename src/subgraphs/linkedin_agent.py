@@ -15,7 +15,7 @@ from src.tools.mcp import MCPToolSessionManager
 from src.tools.read_skill import read_skill
 
 from headroom.integrations.langchain import create_compress_tool_messages_node
-from src.nodes.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
+from src.middlewares.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
 
 load_dotenv(override=True)
 
