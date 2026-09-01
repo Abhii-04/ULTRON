@@ -81,6 +81,14 @@ SERVICE_INTENT_WORDS = {
     "url",
     "http",
     "https",
+    "browser",
+    "open",
+    "website",
+    "webpage",
+    "site",
+    "navigate",
+    "click",
+    "inspect",
 }
 
 CASUAL_CHAT_WORDS = {
@@ -192,7 +200,7 @@ class Agent:
             ),
             create_task_instructions_handoff_tool(
                 agent_name="internet",
-                description="Transfer current, recent, web search, URL, or source-backed research tasks to the internet agent.",
+                description="Transfer current, recent, web search, URL, website browsing, browser navigation, or source-backed research tasks to the Internet agent.",
             ),
         ]
         self.orchestrator_agent = llm.bind_tools(self.file_tools + self.handoff_tools)

@@ -12,6 +12,12 @@ RISKY_TOOLS=[
     "delete_file",
     "create_gmail_draft",
     "send_gmail_message",
+    "browser_open",
+    "browser_goto",
+    "browser_click",
+    "browser_fill",
+    "browser_press",
+    "browser_close",
 ]
 
 
@@ -42,14 +48,9 @@ def add_approval(main_tool:Callable|BaseTool)->BaseTool:
 
 
 def add_approval_to_risky_tools(tools: list[BaseTool],) -> list[BaseTool]:
-    """Wrap only risky tools."""
+    """Keep tool lists compatible with the graph-level approval gate."""
 
-    return [
-        add_approval(current_tool)
-        if current_tool.name in RISKY_TOOLS
-        else current_tool
-        for current_tool in tools
-    ]
+    return tools
 
 
 #use this HITL for security purpose as it will always block risky tools and ask for human approval.

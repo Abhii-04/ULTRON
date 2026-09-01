@@ -6,7 +6,27 @@ def dynamic_agent_selection(state:State):
 
     if any(word in last_msg for word in ["linkedin"]):
         return "linkedin"
-    elif any(word in last_msg for word in ["web search","internet search","search","latest","current"]):
+    elif any(
+        word in last_msg
+        for word in [
+            "web search",
+            "internet search",
+            "search",
+            "latest",
+            "current",
+            "browser",
+            "open",
+            "website",
+            "webpage",
+            "site",
+            "url",
+            "http",
+            "https",
+            "navigate",
+            "click",
+            "inspect",
+        ]
+    ):
         return "internet"
     else:
         return "orchestrator"

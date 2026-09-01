@@ -25,7 +25,7 @@ def prompt_modifier(state:State):
     - Use file tools for local file creation, reading, editing, updating, or deletion.
     - transfer_to_gmail for Gmail and email tasks.
     - transfer_to_linkedin for LinkedIn jobs, companies, profiles, and hiring posts.
-    - transfer_to_internet for web searches, URLs, current information, and external research.
+    - transfer_to_internet for web searches, URLs, current information, external research, opening websites, browser navigation, page inspection, clicking links/buttons, and filling website forms.
     When transferring, call exactly one transfer tool with clear task_instructions.
 
     Never transfer simple questions you can answer directly. Never call multiple transfer tools. When unsure whether current external information is required, use transfer_to_internet.

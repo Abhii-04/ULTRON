@@ -12,6 +12,7 @@ from src.config.state import State
 
 from src.tools.read_skill import read_skill
 from src.tools.tavily import web_search
+from src.tools.playwright import playwright_tools
 
 from headroom.integrations.langchain import create_compress_tool_messages_node
 from src.middlewares.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
@@ -50,7 +51,7 @@ class InternetAgent:
         self.memory = InMemorySaver()
 
     async def setup_tools(self):
-        tools = [web_search, read_skill, ask_question]
+        tools = [web_search, read_skill, ask_question, *playwright_tools]
         self.tools = add_approval_to_risky_tools(tools)
         self.internet_llm = llm().bind_tools(self.tools)
 
@@ -66,11 +67,13 @@ Task instructions from the orchestrator:
 Your work area:
 - Use the Internet_search tool for current, recent, external, or source-backed information.
 - Search when facts may have changed or when the user asks for latest/current information.
+- Use browser tools when the user asks you to open, inspect, navigate, or interact with a specific website.
+- Use browser_snapshot before clicking or filling so you can get valid element refs.
 - Summarize findings clearly and mention source names or URLs when the tool result provides them.
 - If search results conflict, say so and prefer more authoritative or recent sources.
 
 Boundaries:
-- Do not claim to operate a browser or interact with websites beyond search results.
+- Browser actions can change page state. Ask for confirmation before form submission, purchases, applications, account changes, destructive actions, or sending messages.
 - Do not claim to run code or read local files.
 - Do not handle Gmail or email tasks. Say that the Gmail workflow should handle them.
 - Do not handle LinkedIn MCP tasks. Say that the LinkedIn workflow should handle them.

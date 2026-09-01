@@ -7,7 +7,7 @@ from src.config.state import State
 
 
 TRIM_EVERY_CALLS = 2
-MAX_CONTEXT_TOKENS = 5000
+MAX_CONTEXT_TOKENS = 1500
 
 
 def context_trimming_node(state: State) -> dict[str, Any]:
