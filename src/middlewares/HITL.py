@@ -3,7 +3,7 @@ from langchain_core.tools import BaseTool, tool
 from langgraph.graph.state import RunnableConfig
 from langgraph.types import interrupt
 from langchain_core.messages import HumanMessage,AIMessage,ToolMessage
-from src.state import State
+from src.config.state import State
 
 
 RISKY_TOOLS=[
@@ -87,24 +87,7 @@ def halt_on_risky_tools(state:State):
 #Use this HITL for clarification purpose only, keep the other one for security purpose
 @tool
 def ask_question(question:str):
-    """
-    Asks a human a question and waits for their response using Human-in-the-Loop (HITL).
-    
-    This tool interrupts the agent's execution to collect human input, then resumes
-    with the human's answer. Use this when you need clarification, approval, or
-    information that only the human can provide.
-    
-    Parameters:
-        question (str): The question to ask the human. Be specific and clear.
-        
-    Returns:
-        str: The human's response to the question.
-        
-    Example:
-        >>> ask_question("What is your preferred investment budget for this trade?")
-        # Agent pauses here, waiting for human input
-        # Returns: "$5000" (or whatever the human responds)
-    """
+    """Ask the human one concise clarification question."""
     response = interrupt({question:question})
     return{
         "user`s response":response

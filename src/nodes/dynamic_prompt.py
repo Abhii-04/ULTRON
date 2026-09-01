@@ -1,4 +1,4 @@
-from src.state import State
+from src.config.state import State
 
 def prompt_modifier(state:State):
     """Change the agents prompt depending on the query intent. """

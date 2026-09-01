@@ -26,10 +26,7 @@ def create_task_instructions_handoff_tool(
     
     @tool(name, description=description)
     def handoff_to_agent(
-        task_instructions: Annotated[str, dedent("""
-        Specify exactly what this agent should do, what data they should retrieve, and what output you expect back.
-        Include any specific parameters or constraints that will help the agent complete the task successfully.
-        """)],
+        task_instructions: Annotated[str, "What the target agent should do and return."],
         state: Annotated[dict, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ):

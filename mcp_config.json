@@ -4,7 +4,7 @@
       "command": "bash",
       "args": [
         "-lc",
-        "Xvfb :99 -screen 0 1280x720x24 >/tmp/linkedin-mcp-xvfb.log 2>&1 & xvfb_pid=$!; trap 'kill \"$xvfb_pid\" 2>/dev/null' EXIT TERM INT; export DISPLAY=:99; uvx mcp-server-linkedin@latest --log-level ERROR --daemon 2>/tmp/linkedin-mcp-server.log"
+        "Xvfb :99 -screen 0 1280x720x24 >/tmp/linkedin-mcp-xvfb.log 2>&1 & xvfb_pid=$!; trap 'kill \"$xvfb_pid\" 2>/dev/null' EXIT TERM INT; export DISPLAY=:99; uvx --with 'fastmcp<4' mcp-server-linkedin@latest --log-level ERROR --daemon 2>/tmp/linkedin-mcp-server.log"
       ],
       "env": {
         "FASTMCP_SHOW_SERVER_BANNER": "false",

@@ -8,13 +8,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from src.state import State
+from src.config.state import State
 
 from src.tools.read_skill import read_skill
 from src.tools.tavily import web_search
 
 from headroom.integrations.langchain import create_compress_tool_messages_node
 from src.middlewares.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
+from src.nodes.context_trimming import context_trimming_node
 
 load_dotenv(override=True)
 
@@ -122,6 +123,8 @@ With this feedback, please continue the assignment, ensuring that you meet the s
         graph_builder = StateGraph(State)
         graph_builder.add_node("load_internet_skill", self.load_internet_skill)
         graph_builder.add_node("internet_agent", self.internet_agent)
+        graph_builder.add_node("context_trim_after_agent", context_trimming_node)
+        graph_builder.add_node("context_trim_after_tools", context_trimming_node)
         graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node(
             "tools",
@@ -133,8 +136,9 @@ With this feedback, please continue the assignment, ensuring that you meet the s
 
         graph_builder.add_edge(START, "load_internet_skill")
         graph_builder.add_edge("load_internet_skill", "internet_agent")
+        graph_builder.add_edge("internet_agent", "context_trim_after_agent")
         graph_builder.add_conditional_edges(
-            "internet_agent",
+            "context_trim_after_agent",
             self.internet_agent_router,
             {
                 "tools": "toolcall",
@@ -150,7 +154,8 @@ With this feedback, please continue the assignment, ensuring that you meet the s
             },
         )
         graph_builder.add_edge("tools", "compress")
-        graph_builder.add_edge("compress","internet_agent")
+        graph_builder.add_edge("compress", "context_trim_after_tools")
+        graph_builder.add_edge("context_trim_after_tools","internet_agent")
 
         self.graph = graph_builder.compile(checkpointer=self.memory)
 

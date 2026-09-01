@@ -12,3 +12,4 @@ class State(TypedDict, total=False):
     hitl_decision: str
     task_instructions: str
     mem0_user_id: str
+    context_trim_call_count: int

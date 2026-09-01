@@ -7,6 +7,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_core.messages import AIMessage, HumanMessage
 from src.tools.Gmail import _compact_search_gmail, _create_gmail_draft
+from src.nodes.context_trimming import context_trimming_node
 
 
 def _latest_human_text(messages: List[Any]) -> str:
@@ -92,6 +93,7 @@ class GmailState(TypedDict, total=False):
     cc: Optional[List[str]]
     bcc: Optional[List[str]]
     gmail_result: Any
+    context_trim_call_count: int
 
 
 class Gmail_agent:
@@ -170,6 +172,7 @@ class Gmail_agent:
         graph_builder.add_node("prepare_gmail_state", self.prepare_gmail_state)
         graph_builder.add_node("search_gmail", self.search_gmail_node)
         graph_builder.add_node("draft_message", self.draft_message_node)
+        graph_builder.add_node("context_trim", context_trimming_node)
 
         graph_builder.add_edge(START, "prepare_gmail_state")
         graph_builder.add_conditional_edges(
@@ -181,8 +184,9 @@ class Gmail_agent:
                 END: END
             },
         )
-        graph_builder.add_edge("search_gmail", END)
-        graph_builder.add_edge("draft_message", END)
+        graph_builder.add_edge("search_gmail", "context_trim")
+        graph_builder.add_edge("draft_message", "context_trim")
+        graph_builder.add_edge("context_trim", END)
 
         self.graph = graph_builder.compile(checkpointer=self.memory)
 

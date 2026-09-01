@@ -1,4 +1,4 @@
-from src.state import State
+from src.config.state import State
 
 def dynamic_agent_selection(state:State):
     """Select an agent based on task given by user. """

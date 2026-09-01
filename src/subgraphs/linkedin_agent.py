@@ -9,13 +9,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from src.state import State
+from src.config.state import State
 
 from src.tools.mcp import MCPToolSessionManager
 from src.tools.read_skill import read_skill
 
 from headroom.integrations.langchain import create_compress_tool_messages_node
 from src.middlewares.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
+from src.nodes.context_trimming import context_trimming_node
 
 load_dotenv(override=True)
 
@@ -157,6 +158,8 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
             min_tokens_to_compress=1000,
         ))
         graph_builder.add_node("linkedin_agent", self.linkedin_agent)
+        graph_builder.add_node("context_trim_after_agent", context_trimming_node)
+        graph_builder.add_node("context_trim_after_tools", context_trimming_node)
         graph_builder.add_node("toolcall", halt_on_risky_tools)
         graph_builder.add_node(
             "tools",
@@ -165,8 +168,9 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
 
         graph_builder.add_edge(START, "load_linkedin_skill")
         graph_builder.add_edge("load_linkedin_skill", "linkedin_agent")
+        graph_builder.add_edge("linkedin_agent", "context_trim_after_agent")
         graph_builder.add_conditional_edges(
-            "linkedin_agent",
+            "context_trim_after_agent",
             self.linkedin_agent_router,
             {
                 "tools": "toolcall",
@@ -182,7 +186,8 @@ The current date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
             },
         )
         graph_builder.add_edge("tools", "compress")
-        graph_builder.add_edge("compress","linkedin_agent")
+        graph_builder.add_edge("compress", "context_trim_after_tools")
+        graph_builder.add_edge("context_trim_after_tools","linkedin_agent")
 
         self.graph = graph_builder.compile(checkpointer=self.memory)
 

@@ -4,7 +4,7 @@ import faulthandler
 from langgraph.types import Command
 
 from src.agent import Agent
-from src.terminal_ui import TerminalUI
+from src.config.terminal_ui import TerminalUI
 
 faulthandler.enable(all_threads=True)
 
