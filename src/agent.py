@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 from dotenv import load_dotenv
+from headroom.integrations.langchain import create_compress_tool_messages_node
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
@@ -28,8 +29,15 @@ from src.nodes.dynamic_agent_selection import dynamic_agent_selection
 from src.nodes.context_trimming import context_trimming_node
 from src.middlewares.context_handoff import create_task_instructions_handoff_tool
 from src.middlewares.HITL import add_approval_to_risky_tools, ask_question, halt_on_risky_tools
-
-from src.config.memory import memory
+from src.nodes.dynamic_routing import (
+    _latest_human_text,
+    _load_memory_context,
+    _looks_casual,
+    _looks_like_tool_request,
+    _save_memory,
+    handle_file_tool_error,
+    recent_chat_messages,
+)
 
 load_dotenv(override=True)
 
@@ -39,136 +47,6 @@ llm = ChatOpenAI(
     base_url="https://api.deepseek.com",
 )
 
-DIRECT_CHAT_HISTORY_LIMIT = 6
-MEMORY_TOP_K = 3
-MAX_MEMORY_ITEM_CHARS = 180
-
-FILE_ACTION_WORDS = {
-    "read",
-    "write",
-    "create",
-    "delete",
-    "edit",
-    "update",
-    "save",
-}
-
-FILE_TARGET_WORDS = {
-    "file",
-    "folder",
-    "directory",
-    "path",
-    ".txt",
-    ".md",
-    ".py",
-    ".json",
-}
-
-SERVICE_INTENT_WORDS = {
-    "gmail",
-    "email",
-    "inbox",
-    "draft",
-    "linkedin",
-    "job",
-    "profile",
-    "web",
-    "internet",
-    "search",
-    "latest",
-    "current",
-    "recent",
-    "url",
-    "http",
-    "https",
-    "browser",
-    "open",
-    "website",
-    "webpage",
-    "site",
-    "navigate",
-    "click",
-    "inspect",
-}
-
-CASUAL_CHAT_WORDS = {
-    "hi",
-    "hello",
-    "hey",
-    "thanks",
-    "thank you",
-    "ok",
-    "okay",
-    "cool",
-    "great",
-}
-
-
-def _message_text(message: Any) -> str:
-    content = getattr(message, "content", "")
-    return content if isinstance(content, str) else str(content)
-
-
-def _latest_human_text(messages: list[Any]) -> str:
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage):
-            return _message_text(message)
-    return _message_text(messages[-1]) if messages else ""
-
-
-def _looks_like_tool_request(text: str) -> bool:
-    lowered = text.lower()
-    has_file_action = any(word in lowered for word in FILE_ACTION_WORDS)
-    has_file_target = any(word in lowered for word in FILE_TARGET_WORDS)
-    return (has_file_action and has_file_target) or any(word in lowered for word in SERVICE_INTENT_WORDS)
-
-
-def _looks_casual(text: str) -> bool:
-    lowered = text.strip().lower()
-    return len(lowered.split()) <= 5 and any(word == lowered or word in lowered for word in CASUAL_CHAT_WORDS)
-
-
-def _recent_chat_messages(messages: list[Any]) -> list[Any]:
-    return messages[-DIRECT_CHAT_HISTORY_LIMIT:]
-
-
-def _format_memory_context(memory_list: list[dict[str, Any]]) -> str:
-    memory_lines = []
-    for item in memory_list:
-        memory_text = item.get("memory")
-        if not memory_text:
-            continue
-        memory_lines.append(f"- {str(memory_text)[:MAX_MEMORY_ITEM_CHARS]}")
-    return "\n".join(memory_lines)
-
-
-def _load_memory_context(user_text: str, user_id: str) -> str:
-    try:
-        memories = memory.search(user_text, filters={"user_id": user_id}, top_k=MEMORY_TOP_K)
-        return _format_memory_context(memories.get("results", []))
-    except Exception as e:
-        print(f"Error retrieving memory: {type(e).__name__}:{e}")
-        return ""
-
-
-def _save_memory(user_text: str, assistant_text: str, user_id: str) -> None:
-    if _looks_casual(user_text):
-        return
-
-    try:
-        interaction = [
-            {"role": "user", "content": user_text},
-            {"role": "assistant", "content": assistant_text},
-        ]
-        result = memory.add(interaction, user_id=user_id)
-        print(f"memory saved:{len(result.get('results', []))} memories added")
-    except Exception as e:
-        print(f"Error saving memory: {type(e).__name__}:{e}")
-
-
-def handle_file_tool_error(error: Exception) -> str:
-    """Return file tool failures to the model instead of crashing the graph."""
-    return f"File tool call failed: {type(error).__name__}: {error}"
 
 class Agent:
     def __init__(self):
@@ -226,28 +104,23 @@ class Agent:
 
     def orchestrator(self, state: State, store: BaseStore) -> dict[str, Any]:
         messages = state["messages"]
-        user_id = state["user_id"]
+        user_id = state.get("user_id", "default")
         user_text = _latest_human_text(messages)
         last_message = messages[-1]
         use_tools = isinstance(last_message, (AIMessage, ToolMessage)) or _looks_like_tool_request(user_text)
         use_memory = not _looks_casual(user_text)
-        memory_context = _load_memory_context(user_text, user_id) if use_memory else ""
+        memory_context = _load_memory_context(user_text, user_id) if use_memory and not use_tools else ""
 
         if not use_tools:
             system_prompt = "You are ULTRON. Answer directly and keep casual replies concise."
             if memory_context:
                 system_prompt = f"{system_prompt}\n\nRelevant long term user memories:\n{memory_context}"
-            system_message = SystemMessage(
-                content=system_prompt
-            )
-            response = llm.invoke([system_message, *_recent_chat_messages(messages)])
+            system_message = SystemMessage(content=system_prompt)
+            response = llm.invoke([system_message, *recent_chat_messages(messages)])
             _save_memory(user_text, response.content, user_id)
             return {"messages": [response]}
 
         system_prompt = prompt_modifier(state)
-        if memory_context:
-            system_prompt = f"{system_prompt}\n\nRelevant long term user memories:\n{memory_context}"
-
         system_message = SystemMessage(content=system_prompt)
 
         response = self.orchestrator_agent.invoke([system_message, *messages])
@@ -259,7 +132,7 @@ class Agent:
             return {"messages": [response], "next": END}
 
         _save_memory(user_text, response.content, user_id)
-        return {"messages":[response]}
+        return {"messages": [response]}
 
     def orchestrator_router(self, state: State):
         route = state.get("next")
@@ -278,6 +151,12 @@ class Agent:
         graph_builder.add_node(
             "orchestrator_tools",
             ToolNode(self.file_tools + self.handoff_tools, handle_tool_errors=handle_file_tool_error),
+        )
+        graph_builder.add_node(
+            "compress",
+            create_compress_tool_messages_node(
+                min_tokens_to_compress=1000,
+            ),
         )
         graph_builder.add_node("internet", self.internet_graph)
         graph_builder.add_node("gmail", self.gmail_graph)
@@ -312,7 +191,8 @@ class Agent:
                 END: END,
             },
         )
-        graph_builder.add_edge("orchestrator_tools", "context_trim_after_tools")
+        graph_builder.add_edge("orchestrator_tools", "compress")
+        graph_builder.add_edge("compress", "context_trim_after_tools")
         graph_builder.add_edge("context_trim_after_tools", "agent")
         graph_builder.add_edge("internet", END)
         graph_builder.add_edge("gmail", END)

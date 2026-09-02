@@ -1,8 +1,12 @@
+from langchain_core.messages import HumanMessage
+
+from src.config.memory import memory
 from src.config.state import State
 
 def prompt_modifier(state:State):
     """Change the agents prompt depending on the query intent. """
     user_msg = state["messages"][-1].content.lower()
+    user_id = state.get("user_id", "default")
     profile = state.get("profile", "No user profile available.")
 
     if "summarize" in user_msg:
@@ -36,4 +40,24 @@ def prompt_modifier(state:State):
     linkedin
     internet
     """
+    user_text = next(
+        (
+            message.content if isinstance(message.content, str) else str(message.content)
+            for message in reversed(state["messages"])
+            if isinstance(message, HumanMessage)
+        ),
+        "",
+    )
+    try:
+        memories = memory.search(user_text, filters={"user_id": user_id}, top_k=3)
+        memory_lines = [
+            f"- {str(item.get('memory'))[:180]}"
+            for item in memories.get("results", [])
+            if item.get("memory")
+        ]
+        if memory_lines:
+            prompt = f"{prompt}\n\nRelevant long term user memories:\n" + "\n".join(memory_lines)
+    except Exception as e:
+        print(f"Error retrieving memory: {type(e).__name__}:{e}")
+
     return prompt

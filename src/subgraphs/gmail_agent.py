@@ -10,13 +10,6 @@ from src.tools.Gmail import _compact_search_gmail, _create_gmail_draft
 from src.nodes.context_trimming import context_trimming_node
 
 
-def _latest_human_text(messages: List[Any]) -> str:
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage) and isinstance(message.content, str):
-            return message.content
-    return ""
-
-
 def _gmail_date_query(text: str, now: Optional[datetime] = None) -> Optional[str]:
     latest_text = text.lower()
     current_time = now or datetime.now().astimezone()
@@ -117,7 +110,14 @@ class Gmail_agent:
 
     def prepare_gmail_state(self, state: GmailState):
         messages = state.get("messages", [])
-        latest_message = state.get("task_instructions") or _latest_human_text(messages)
+        latest_message = state.get("task_instructions") or next(
+            (
+                message.content
+                for message in reversed(messages)
+                if isinstance(message, HumanMessage) and isinstance(message.content, str)
+            ),
+            "",
+        )
         if not latest_message and state.get("gmail_action") and state.get("query"):
             return {}
 
